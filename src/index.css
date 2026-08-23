@@ -1,0 +1,173 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark, .dark *));
+@custom-variant light (&:is(.light, .light *));
+
+/* Centralized CSS Variables Root Theme Architecture */
+:root,
+html.dark {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* DARK THEME: Deep black / near-black canvas & glass surfaces */
+  --bg-app: #050505;
+  --bg-surface: #0a0a0c;
+  --bg-surface-card: #0d0e12;
+  --bg-surface-panel: #0a0a0c;
+  --bg-surface-glass: rgba(10, 10, 12, 0.85);
+  --bg-surface-subtle: rgba(255, 255, 255, 0.03);
+  --bg-surface-hover: rgba(255, 255, 255, 0.07);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border-main: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --accent-primary: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-subtle: rgba(59, 130, 246, 0.12);
+  --accent-border: rgba(59, 130, 246, 0.25);
+  --input-bg: #0e0e12;
+  --input-border: rgba(255, 255, 255, 0.12);
+  --input-text: #f8fafc;
+  --modal-bg: #0a0a0c;
+  --modal-border: rgba(255, 255, 255, 0.12);
+  color-scheme: dark;
+}
+
+html.light {
+  /* LIGHT THEME: Soft cool-slate canvas, crisp card surfaces, dark navy text */
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-card: #ffffff;
+  --bg-surface-panel: #f1f5f9;
+  --bg-surface-glass: rgba(255, 255, 255, 0.9);
+  --bg-surface-subtle: #f1f5f9;
+  --bg-surface-hover: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --border-main: #e2e8f0;
+  --border-subtle: #f1f5f9;
+  --accent-primary: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-subtle: rgba(37, 99, 235, 0.08);
+  --accent-border: rgba(37, 99, 235, 0.25);
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --input-text: #0f172a;
+  --modal-bg: #ffffff;
+  --modal-border: #e2e8f0;
+  color-scheme: light;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    transition: background-color 0.2s ease, color 0.2s ease;
+    min-height: 100vh;
+  }
+}
+
+/* Print Styles */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  header, aside, nav, button, .no-print {
+    display: none !important;
+  }
+
+  #resume-document-canvas {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #resume-document-canvas * {
+    color: #000000 !important;
+    border-color: #cbd5e1 !important;
+  }
+}
+
+/* Base Light Theme automatic adjustments for surfaces, borders, and text */
+html.light .bg-\[\#050505\],
+html.light .bg-slate-950,
+html.light .bg-black {
+  background-color: var(--bg-app) !important;
+}
+
+html.light .bg-\[\#0a0a0c\],
+html.light .bg-\[\#0d0e12\],
+html.light .bg-slate-900 {
+  background-color: var(--bg-surface) !important;
+}
+
+html.light .bg-white\/5,
+html.light .bg-white\/10 {
+  background-color: var(--bg-surface-subtle) !important;
+}
+
+html.light .border-white\/10,
+html.light .border-white\/5,
+html.light .border-slate-800,
+html.light .border-slate-800\/80 {
+  border-color: var(--border-main) !important;
+}
+
+html.light .text-slate-100,
+html.light .text-white {
+  color: var(--text-primary) !important;
+}
+
+html.light .text-slate-200,
+html.light .text-slate-300,
+html.light .text-slate-400 {
+  color: var(--text-secondary) !important;
+}
+
+html.light .hover\:bg-white\/5:hover,
+html.light .hover\:bg-white\/10:hover,
+html.light .hover\:bg-slate-800:hover,
+html.light .hover\:bg-slate-800\/60:hover {
+  background-color: var(--bg-surface-hover) !important;
+}
+
+html.light .hover\:text-white:hover {
+  color: var(--text-primary) !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+

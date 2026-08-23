@@ -1,0 +1,586 @@
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useAuth } from './AuthContext';
+import { studentTwinService } from '../services/studentTwinService';
+import {
+  UserProfile,
+  StudentProfile,
+  SkillItem,
+  ProjectItem,
+  AchievementItem,
+  CareerGoalItem,
+  OnboardingFormData,
+} from '../types';
+
+interface StudentTwinContextType {
+  userProfile: UserProfile | null;
+  studentProfiles: StudentProfile[];
+  activeStudentProfile: StudentProfile | null;
+  activeStudentProfileId: string | null;
+  skills: SkillItem[];
+  allSkills: SkillItem[];
+  projects: ProjectItem[];
+  allProjects: ProjectItem[];
+  achievements: AchievementItem[];
+  allAchievements: AchievementItem[];
+  careerGoals: CareerGoalItem[];
+  allCareerGoals: CareerGoalItem[];
+  activeCareerGoal: CareerGoalItem | null;
+  isLoading: boolean;
+  isSyncing: boolean;
+  syncStatus: 'idle' | 'syncing' | 'success' | 'error';
+  syncMessage: string | null;
+  isOnboarded: boolean;
+  showOnboarding: boolean;
+  setShowOnboarding: (show: boolean) => void;
+  // Actions
+  completeOnboarding: (data: OnboardingFormData) => Promise<{ success: boolean; error: Error | null }>;
+  updateUserProfile: (data: Partial<UserProfile>) => Promise<{ success: boolean; error: Error | null }>;
+  setActiveStudent: (studentProfileId: string) => void;
+  createStudentProfile: (data: Omit<StudentProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<{ data: StudentProfile | null; error: Error | null }>;
+  updateStudentProfile: (id: string, data: Partial<StudentProfile>) => Promise<{ data: StudentProfile | null; error: Error | null }>;
+  deleteStudentProfile: (id: string) => Promise<{ success: boolean; error: Error | null }>;
+  // Skills CRUD
+  addSkill: (data: Omit<SkillItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<{ data: SkillItem | null; error: Error | null }>;
+  updateSkill: (id: string, data: Partial<SkillItem>) => Promise<{ data: SkillItem | null; error: Error | null }>;
+  deleteSkill: (id: string) => Promise<{ success: boolean; error: Error | null }>;
+  // Projects CRUD
+  addProject: (data: Omit<ProjectItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<{ data: ProjectItem | null; error: Error | null }>;
+  updateProject: (id: string, data: Partial<ProjectItem>) => Promise<{ data: ProjectItem | null; error: Error | null }>;
+  deleteProject: (id: string) => Promise<{ success: boolean; error: Error | null }>;
+  // Achievements CRUD
+  addAchievement: (data: Omit<AchievementItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<{ data: AchievementItem | null; error: Error | null }>;
+  updateAchievement: (id: string, data: Partial<AchievementItem>) => Promise<{ data: AchievementItem | null; error: Error | null }>;
+  deleteAchievement: (id: string) => Promise<{ success: boolean; error: Error | null }>;
+  // Career Goals CRUD
+  addCareerGoal: (data: Omit<CareerGoalItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<{ data: CareerGoalItem | null; error: Error | null }>;
+  updateCareerGoal: (id: string, data: Partial<CareerGoalItem>) => Promise<{ data: CareerGoalItem | null; error: Error | null }>;
+  deleteCareerGoal: (id: string) => Promise<{ success: boolean; error: Error | null }>;
+  setActiveGoal: (id: string) => Promise<{ success: boolean; error: Error | null }>;
+  // Explicit Cloud upload
+  uploadDataToCloud: () => Promise<{ success: boolean; message: string; error: Error | null }>;
+  refreshData: () => Promise<void>;
+}
+
+const StudentTwinContext = createContext<StudentTwinContextType | undefined>(undefined);
+
+export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isAuthenticated } = useAuth();
+  const userId = user?.id || '';
+
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [studentProfiles, setStudentProfiles] = useState<StudentProfile[]>([]);
+  const [activeStudentProfileId, setActiveStudentProfileId] = useState<string | null>(null);
+  
+  const [allSkills, setAllSkills] = useState<SkillItem[]>([]);
+  const [allProjects, setAllProjects] = useState<ProjectItem[]>([]);
+  const [allAchievements, setAllAchievements] = useState<AchievementItem[]>([]);
+  const [allCareerGoals, setAllCareerGoals] = useState<CareerGoalItem[]>([]);
+
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
+
+  // Load all user records from Supabase / cache when authenticated user changes
+  const loadUserData = useCallback(async (targetUserId: string) => {
+    if (!targetUserId) {
+      setUserProfile(null);
+      setStudentProfiles([]);
+      setActiveStudentProfileId(null);
+      setAllSkills([]);
+      setAllProjects([]);
+      setAllAchievements([]);
+      setAllCareerGoals([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // 1. Fetch user profile
+      const { data: profile } = await studentTwinService.fetchUserProfile(targetUserId);
+
+      // 2. Fetch student profiles
+      const { data: students } = await studentTwinService.fetchStudentProfiles(targetUserId);
+
+      // 3. Fetch skills, projects, achievements, career goals
+      const [skillsRes, projectsRes, achRes, goalsRes] = await Promise.all([
+        studentTwinService.fetchSkills(targetUserId),
+        studentTwinService.fetchProjects(targetUserId),
+        studentTwinService.fetchAchievements(targetUserId),
+        studentTwinService.fetchCareerGoals(targetUserId),
+      ]);
+
+      const loadedProfile = profile || {
+        id: targetUserId,
+        email: user?.email || '',
+        fullName: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
+        university: '',
+        degree: '',
+        branch: '',
+        program: '',
+        year: '',
+        careerGoal: '',
+        targetRole: '',
+        plan: 'free' as const,
+        isOnboarded: false,
+        createdAt: user?.created_at || new Date().toISOString(),
+        isDemo: false,
+      };
+
+      setUserProfile(loadedProfile);
+      setStudentProfiles(students);
+      setAllSkills(skillsRes.data || []);
+      setAllProjects(projectsRes.data || []);
+      setAllAchievements(achRes.data || []);
+      setAllCareerGoals(goalsRes.data || []);
+
+      // Check if user is already onboarded
+      const hasOnboardingDone = Boolean(loadedProfile.isOnboarded || (loadedProfile.university && loadedProfile.year));
+      setShowOnboarding(!hasOnboardingDone);
+
+      // Select active student profile
+      const savedActiveId = localStorage.getItem(`sdt_user_${targetUserId}_active_student_id`);
+      const activeExists = students.find((s) => s.id === savedActiveId);
+      if (activeExists) {
+        setActiveStudentProfileId(activeExists.id);
+      } else if (students.length > 0) {
+        const defaultActive = students.find((s) => s.isActive) || students[0];
+        setActiveStudentProfileId(defaultActive.id);
+        localStorage.setItem(`sdt_user_${targetUserId}_active_student_id`, defaultActive.id);
+      } else {
+        setActiveStudentProfileId(null);
+      }
+    } catch (err) {
+      console.warn('Error loading student twin user data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  // Handle Authentication Changes & Strict Isolation (Clear stale state when user changes)
+  useEffect(() => {
+    if (isAuthenticated && userId) {
+      loadUserData(userId);
+    } else {
+      // Clear all state on logout
+      setUserProfile(null);
+      setStudentProfiles([]);
+      setActiveStudentProfileId(null);
+      setAllSkills([]);
+      setAllProjects([]);
+      setAllAchievements([]);
+      setAllCareerGoals([]);
+      setShowOnboarding(false);
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, userId, loadUserData]);
+
+  // Filter items by active student profile (or show all user items if no active student profile)
+  const activeStudentProfile = studentProfiles.find((s) => s.id === activeStudentProfileId) || (studentProfiles.length > 0 ? studentProfiles[0] : null);
+
+  const skills = allSkills.filter(
+    (item) => !activeStudentProfileId || !item.studentProfileId || item.studentProfileId === activeStudentProfileId
+  );
+
+  const projects = allProjects.filter(
+    (item) => !activeStudentProfileId || !item.studentProfileId || item.studentProfileId === activeStudentProfileId
+  );
+
+  const achievements = allAchievements.filter(
+    (item) => !activeStudentProfileId || !item.studentProfileId || item.studentProfileId === activeStudentProfileId
+  );
+
+  const careerGoals = allCareerGoals.filter(
+    (item) => !activeStudentProfileId || !item.studentProfileId || item.studentProfileId === activeStudentProfileId
+  );
+
+  const activeCareerGoal = careerGoals.find((g) => g.isActive) || (careerGoals.length > 0 ? careerGoals[0] : null);
+
+  // Switch Active Student Profile (Clears stale data safely and saves active ID)
+  const setActiveStudent = (studentProfileId: string) => {
+    if (!userId) return;
+    setActiveStudentProfileId(studentProfileId);
+    localStorage.setItem(`sdt_user_${userId}_active_student_id`, studentProfileId);
+  };
+
+  // Complete First-Time Onboarding
+  const completeOnboarding = async (data: OnboardingFormData): Promise<{ success: boolean; error: Error | null }> => {
+    if (!userId) return { success: false, error: new Error('User is not authenticated') };
+
+    try {
+      setIsSyncing(true);
+      // 1. Save User Profile
+      const updatedProfile: UserProfile = {
+        id: userId,
+        email: user?.email || '',
+        fullName: data.fullName,
+        university: data.university,
+        degree: data.degree,
+        branch: data.branch,
+        program: `${data.degree} in ${data.branch}`,
+        year: data.year,
+        careerGoal: data.careerGoal,
+        targetRole: data.targetRole || data.careerGoal,
+        bio: data.bio || '',
+        githubUrl: data.githubUrl || '',
+        linkedinUrl: data.linkedinUrl || '',
+        phone: data.phone || '',
+        location: data.location || '',
+        plan: 'free',
+        isOnboarded: true,
+        createdAt: userProfile?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        isDemo: false,
+      };
+
+      const { data: savedProfile, error: profileErr } = await studentTwinService.upsertUserProfile(userId, updatedProfile);
+      if (profileErr) throw profileErr;
+
+      setUserProfile(savedProfile || updatedProfile);
+
+      // 2. Create primary default Student Profile for this authenticated user
+      const { data: newStudent, error: studentErr } = await studentTwinService.createStudentProfile(userId, {
+        name: data.fullName,
+        university: data.university,
+        degree: data.degree,
+        branch: data.branch,
+        year: data.year,
+        careerGoal: data.careerGoal,
+        targetRole: data.targetRole || data.careerGoal,
+        profileData: {
+          bio: data.bio || '',
+          githubUrl: data.githubUrl || '',
+          linkedinUrl: data.linkedinUrl || '',
+          phone: data.phone || '',
+          location: data.location || '',
+        },
+        isActive: true,
+      });
+
+      if (studentErr) throw studentErr;
+
+      if (newStudent) {
+        setStudentProfiles([newStudent]);
+        setActiveStudentProfileId(newStudent.id);
+        localStorage.setItem(`sdt_user_${userId}_active_student_id`, newStudent.id);
+      }
+
+      setShowOnboarding(false);
+      setIsSyncing(false);
+      return { success: true, error: null };
+    } catch (err: any) {
+      setIsSyncing(false);
+      return { success: false, error: new Error(err.message || 'Failed to complete onboarding') };
+    }
+  };
+
+  // Update User Profile
+  const updateUserProfile = async (data: Partial<UserProfile>): Promise<{ success: boolean; error: Error | null }> => {
+    if (!userId || !userProfile) return { success: false, error: new Error('User not found') };
+
+    try {
+      setIsSyncing(true);
+      const merged: UserProfile = {
+        ...userProfile,
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const { data: saved, error } = await studentTwinService.upsertUserProfile(userId, merged);
+      if (error) throw error;
+
+      setUserProfile(saved || merged);
+      setIsSyncing(false);
+      return { success: true, error: null };
+    } catch (err: any) {
+      setIsSyncing(false);
+      return { success: false, error: new Error(err.message || 'Failed to update profile') };
+    }
+  };
+
+  // Student Profiles CRUD
+  const createStudentProfile = async (data: Omit<StudentProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.createStudentProfile(userId, data);
+    if (res.data) {
+      setStudentProfiles((prev) => [res.data!, ...prev]);
+      if (data.isActive || studentProfiles.length === 0) {
+        setActiveStudentProfileId(res.data.id);
+        localStorage.setItem(`sdt_user_${userId}_active_student_id`, res.data.id);
+      }
+    }
+    return res;
+  };
+
+  const updateStudentProfile = async (id: string, data: Partial<StudentProfile>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.updateStudentProfile(userId, id, data);
+    if (res.data) {
+      setStudentProfiles((prev) => prev.map((item) => (item.id === id ? res.data! : item)));
+    }
+    return res;
+  };
+
+  const deleteStudentProfile = async (id: string) => {
+    if (!userId) return { success: false, error: new Error('User not authenticated') };
+    const res = await studentTwinService.deleteStudentProfile(userId, id);
+    if (res.success) {
+      setStudentProfiles((prev) => {
+        const filtered = prev.filter((item) => item.id !== id);
+        if (activeStudentProfileId === id) {
+          const nextActive = filtered[0]?.id || null;
+          setActiveStudentProfileId(nextActive);
+          if (nextActive) {
+            localStorage.setItem(`sdt_user_${userId}_active_student_id`, nextActive);
+          } else {
+            localStorage.removeItem(`sdt_user_${userId}_active_student_id`);
+          }
+        }
+        return filtered;
+      });
+    }
+    return res;
+  };
+
+  // Skills CRUD
+  const addSkill = async (data: Omit<SkillItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.addSkill(userId, {
+      ...data,
+      studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+    });
+    if (res.data) {
+      setAllSkills((prev) => [res.data!, ...prev]);
+    }
+    return res;
+  };
+
+  const updateSkill = async (id: string, data: Partial<SkillItem>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.updateSkill(userId, id, data);
+    if (res.data) {
+      setAllSkills((prev) => prev.map((item) => (item.id === id ? res.data! : item)));
+    }
+    return res;
+  };
+
+  const deleteSkill = async (id: string) => {
+    if (!userId) return { success: false, error: new Error('User not authenticated') };
+    const res = await studentTwinService.deleteSkill(userId, id);
+    if (res.success) {
+      setAllSkills((prev) => prev.filter((item) => item.id !== id));
+    }
+    return res;
+  };
+
+  // Projects CRUD
+  const addProject = async (data: Omit<ProjectItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.addProject(userId, {
+      ...data,
+      studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+    });
+    if (res.data) {
+      setAllProjects((prev) => [res.data!, ...prev]);
+    }
+    return res;
+  };
+
+  const updateProject = async (id: string, data: Partial<ProjectItem>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.updateProject(userId, id, data);
+    if (res.data) {
+      setAllProjects((prev) => prev.map((item) => (item.id === id ? res.data! : item)));
+    }
+    return res;
+  };
+
+  const deleteProject = async (id: string) => {
+    if (!userId) return { success: false, error: new Error('User not authenticated') };
+    const res = await studentTwinService.deleteProject(userId, id);
+    if (res.success) {
+      setAllProjects((prev) => prev.filter((item) => item.id !== id));
+    }
+    return res;
+  };
+
+  // Achievements CRUD
+  const addAchievement = async (data: Omit<AchievementItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.addAchievement(userId, {
+      ...data,
+      studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+    });
+    if (res.data) {
+      setAllAchievements((prev) => [res.data!, ...prev]);
+    }
+    return res;
+  };
+
+  const updateAchievement = async (id: string, data: Partial<AchievementItem>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.updateAchievement(userId, id, data);
+    if (res.data) {
+      setAllAchievements((prev) => prev.map((item) => (item.id === id ? res.data! : item)));
+    }
+    return res;
+  };
+
+  const deleteAchievement = async (id: string) => {
+    if (!userId) return { success: false, error: new Error('User not authenticated') };
+    const res = await studentTwinService.deleteAchievement(userId, id);
+    if (res.success) {
+      setAllAchievements((prev) => prev.filter((item) => item.id !== id));
+    }
+    return res;
+  };
+
+  // Career Goals CRUD
+  const addCareerGoal = async (data: Omit<CareerGoalItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.addCareerGoal(userId, {
+      ...data,
+      studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+    });
+    if (res.data) {
+      setAllCareerGoals((prev) => {
+        if (data.isActive) {
+          return [res.data!, ...prev.map((g) => ({ ...g, isActive: false }))];
+        }
+        return [res.data!, ...prev];
+      });
+    }
+    return res;
+  };
+
+  const updateCareerGoal = async (id: string, data: Partial<CareerGoalItem>) => {
+    if (!userId) return { data: null, error: new Error('User not authenticated') };
+    const res = await studentTwinService.updateCareerGoal(userId, id, data);
+    if (res.data) {
+      setAllCareerGoals((prev) =>
+        prev.map((item) => {
+          if (item.id === id) return res.data!;
+          if (data.isActive) return { ...item, isActive: false };
+          return item;
+        })
+      );
+    }
+    return res;
+  };
+
+  const deleteCareerGoal = async (id: string) => {
+    if (!userId) return { success: false, error: new Error('User not authenticated') };
+    const res = await studentTwinService.deleteCareerGoal(userId, id);
+    if (res.success) {
+      setAllCareerGoals((prev) => prev.filter((item) => item.id !== id));
+    }
+    return res;
+  };
+
+  const setActiveGoal = async (id: string): Promise<{ success: boolean; error: Error | null }> => {
+    const res = await updateCareerGoal(id, { isActive: true });
+    return { success: Boolean(res.data), error: res.error };
+  };
+
+  // Explicit Cloud Upload (Requirement 17)
+  const uploadDataToCloud = async (): Promise<{ success: boolean; message: string; error: Error | null }> => {
+    if (!userId || !userProfile) {
+      return { success: false, message: 'User is not logged in', error: new Error('Not authenticated') };
+    }
+
+    setIsSyncing(true);
+    setSyncStatus('syncing');
+    setSyncMessage('Uploading student twin records to Supabase...');
+
+    const res = await studentTwinService.uploadDataToCloud(
+      userId,
+      userProfile,
+      studentProfiles,
+      allSkills,
+      allProjects,
+      allAchievements,
+      allCareerGoals
+    );
+
+    setIsSyncing(false);
+    if (res.success) {
+      setSyncStatus('success');
+      setSyncMessage(res.message);
+      setTimeout(() => {
+        setSyncStatus('idle');
+        setSyncMessage(null);
+      }, 4000);
+    } else {
+      setSyncStatus('error');
+      setSyncMessage(res.message);
+    }
+
+    return res;
+  };
+
+  const refreshData = async () => {
+    if (userId) {
+      await loadUserData(userId);
+    }
+  };
+
+  return (
+    <StudentTwinContext.Provider
+      value={{
+        userProfile,
+        studentProfiles,
+        activeStudentProfile,
+        activeStudentProfileId,
+        skills,
+        allSkills,
+        projects,
+        allProjects,
+        achievements,
+        allAchievements,
+        careerGoals,
+        allCareerGoals,
+        activeCareerGoal,
+        isLoading,
+        isSyncing,
+        syncStatus,
+        syncMessage,
+        isOnboarded: Boolean(userProfile?.isOnboarded || (userProfile?.university && userProfile?.year)),
+        showOnboarding,
+        setShowOnboarding,
+        completeOnboarding,
+        updateUserProfile,
+        setActiveStudent,
+        createStudentProfile,
+        updateStudentProfile,
+        deleteStudentProfile,
+        addSkill,
+        updateSkill,
+        deleteSkill,
+        addProject,
+        updateProject,
+        deleteProject,
+        addAchievement,
+        updateAchievement,
+        deleteAchievement,
+        addCareerGoal,
+        updateCareerGoal,
+        deleteCareerGoal,
+        setActiveGoal,
+        uploadDataToCloud,
+        refreshData,
+      }}
+    >
+      {children}
+    </StudentTwinContext.Provider>
+  );
+};
+
+export const useStudentTwin = (): StudentTwinContextType => {
+  const context = useContext(StudentTwinContext);
+  if (!context) {
+    throw new Error('useStudentTwin must be used within a StudentTwinProvider');
+  }
+  return context;
+};
