@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { callGeminiWithRetry, cleanAndParseJSON, handleApiError } from '../../_utils/gemini';
+import { callGeminiWithRetry, cleanAndParseJSON, handleApiError } from '../../_utils/gemini.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
