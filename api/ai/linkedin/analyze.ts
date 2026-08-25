@@ -9,13 +9,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { linkedinUrl, profileText, profileBase64, targetRole, userId } = req.body || {};
 
-    if (!linkedinUrl || typeof linkedinUrl !== 'string') {
-      return res.status(400).json({ error: 'LinkedIn profile URL is required' });
-    }
-
-    const trimmedUrl = linkedinUrl.trim();
-    if (!trimmedUrl.includes('linkedin.com/in/')) {
-      return res.status(400).json({ error: 'Invalid LinkedIn URL. Must be in the format: https://linkedin.com/in/your-handle' });
+    let normalizedUrl = (linkedinUrl || '').trim();
+    if (!normalizedUrl) {
+      normalizedUrl = 'https://linkedin.com/in/student';
+    } else if (!normalizedUrl.includes('linkedin.com')) {
+      const cleanHandle = normalizedUrl.replace(/^https?:\/\//, '').replace(/^in\//, '').replace(/^\/+/, '');
+      normalizedUrl = `https://linkedin.com/in/${cleanHandle}`;
+    } else if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = `https://${normalizedUrl}`;
     }
 
     if (!profileText && !profileBase64) {
@@ -98,7 +99,7 @@ RETURN STRICT JSON ONLY:
     return res.status(200).json({
       id: `li_ana_${Date.now()}`,
       userId: userId || 'anonymous',
-      linkedinUrl: trimmedUrl,
+      linkedinUrl: normalizedUrl,
       analyzedAt: new Date().toISOString(),
       evidenceSource: profileBase64 ? 'pdf' : 'text',
       overallScore: Math.min(100, Math.max(0, Number(parsed.overallScore) || 0)),

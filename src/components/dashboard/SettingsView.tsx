@@ -104,7 +104,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="flex justify-between py-1">
               <span className="text-slate-400">Current Plan:</span>
               <span className="font-bold text-emerald-400 uppercase">
-                {userProfile?.plan === 'pro' ? `PRO (${formatINR(PRICING_PLANS.pro.annualPrice)}/yr)` : `FREE PLAN (${formatINR(0)})`}
+                {userProfile?.subscriptionStatus === 'pending_verification'
+                  ? userProfile?.plan === 'pro_monthly' || userProfile?.billingCycle === 'monthly'
+                    ? `STUDENT PRO (${formatINR(499)}) — PENDING`
+                    : `STUDENT PRO (${formatINR(1499)}) — PENDING`
+                  : userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
+                  ? `STUDENT PRO MONTHLY — ACTIVE (${formatINR(499)}/mo)`
+                  : userProfile?.plan === 'pro_annual' || userProfile?.plan === 'annual' || (userProfile?.plan === 'pro' && !userProfile?.billingCycle) || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'annual')
+                  ? `STUDENT PRO ANNUAL — ACTIVE (${formatINR(1499)}/yr)`
+                  : `FREE PLAN (${formatINR(0)})`}
               </span>
             </div>
           </div>

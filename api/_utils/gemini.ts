@@ -33,7 +33,8 @@ export async function callGeminiWithRetry(params: GeminiCallParams, maxRetries =
   const ai = getGeminiClient();
   const fallbackModels = [
     params.model || 'gemini-3.7-flash',
-    'gemini-3.6-flash',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
   ];
   let lastError: any = null;
 

@@ -41,11 +41,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-        if (error) throw error;
+        if (error) {
+          console.error('[Supabase Auth] getInitialSession error:', {
+            message: error.message,
+            status: error.status,
+            code: (error as any).code || (error as any).name,
+          });
+          throw error;
+        }
 
         if (mounted) {
           setSession(initialSession);
           setUser(initialSession?.user ?? null);
+          console.log('[Supabase Auth] Initial session restored. Authenticated user ID:', initialSession?.user?.id || 'none');
           if (initialSession?.user) {
             setupUserProfile(initialSession.user);
           } else {
@@ -65,7 +73,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Subscribe to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, currentSession) => {
+      async (event, currentSession) => {
+        console.log('[Supabase Auth] onAuthStateChange event:', event, 'Session user ID:', currentSession?.user?.id || 'none');
         if (mounted) {
           setSession(currentSession);
           setUser(currentSession?.user ?? null);
@@ -91,18 +100,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                      authUser.user_metadata?.name || 
                      authUser.email?.split('@')[0] || 
                      'Student User';
+
+    const savedPlan = authUser.user_metadata?.plan || 'free';
+    const billingCycle = authUser.user_metadata?.billing_cycle;
+    const subscriptionStatus = authUser.user_metadata?.subscription_status;
                      
     const profile: UserProfile = {
       id: authUser.id,
       email: authUser.email || '',
       fullName: fullName,
       avatarUrl: authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture,
-      plan: 'free', // Every new authenticated user explicitly starts on FREE PLAN
+      plan: savedPlan,
+      billingCycle: billingCycle,
+      subscriptionStatus: subscriptionStatus,
       createdAt: authUser.created_at || new Date().toISOString(),
       isDemo: false,
     };
 
     setUserProfile(profile);
+  };
+
+  const formatAuthError = (error: any): string => {
+    if (!error) return 'An unknown error occurred.';
+    const msg = (error.message || String(error)).toLowerCase();
+    const code = ((error as any).code || (error as any).name || '').toLowerCase();
+
+    if (
+      code === 'authretryablefetcherror' || 
+      code === 'fetcherror' ||
+      msg.includes('failed to fetch') || 
+      msg.includes('networkerror') || 
+      msg.includes('network error') ||
+      msg.includes('fetch error') || 
+      error.status === 0
+    ) {
+      return 'Unable to reach the authentication service. Please check your network connection or try Demo Mode.';
+    }
+    if (msg.includes('invalid login credentials') || code === 'invalid_credentials') {
+      return 'Invalid email or password. If you haven\'t created an account yet, please sign up.';
+    }
+    if (msg.includes('email not confirmed')) {
+      return 'Email address not confirmed yet. Please check your email inbox for the verification link.';
+    }
+    if (msg.includes('user already registered') || msg.includes('already exists') || code === 'user_already_exists') {
+      return 'An account with this email already exists. Please log in instead.';
+    }
+    if (msg.includes('too many requests') || msg.includes('rate limit') || code.includes('rate_limit')) {
+      return 'Too many login attempts. Please wait a moment before trying again.';
+    }
+    if (msg.includes('password should be at least') || msg.includes('weak password')) {
+      return 'Password is too weak. Please use at least 6 characters.';
+    }
+
+    return error.message || 'Authentication failed. Please try again.';
   };
 
   const signInWithEmail = async (email: string, password: string) => {
@@ -112,14 +162,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
+      console.log('[Supabase Auth] Attempting signInWithPassword for email:', cleanEmail);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
         password,
       });
-      return { error: error ? new Error(error.message) : null };
+
+      if (error) {
+        console.error('[Supabase Auth] signIn error details:', {
+          message: error.message,
+          status: error.status,
+          code: (error as any).code || (error as any).name,
+        });
+
+        const userMessage = formatAuthError(error);
+        return { error: new Error(userMessage) };
+      }
+
+      console.log('[Supabase Auth] signIn success! Authenticated user ID:', data.user?.id);
+      const { data: sessionCheck } = await supabase.auth.getSession();
+      console.log('[Supabase Auth] getSession() returns session:', Boolean(sessionCheck.session));
+
+      if (data.user) {
+        setupUserProfile(data.user);
+      }
+
+      return { error: null };
     } catch (err: any) {
-      return { error: new Error(err.message || 'Failed to sign in') };
+      console.error('[Supabase Auth] Unexpected signIn exception:', err);
+      const userMessage = formatAuthError(err);
+      return { error: new Error(userMessage) };
     }
   };
 
@@ -130,27 +205,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+
     try {
+      console.log('[Supabase Auth] Attempting signUp for email:', cleanEmail);
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: cleanEmail,
         password,
         options: {
           data: {
-            full_name: fullName,
+            full_name: fullName.trim(),
+            plan: 'free',
           },
         },
       });
 
       if (error) {
-        return { error: new Error(error.message) };
+        console.error('[Supabase Auth] signUp error details:', {
+          message: error.message,
+          status: error.status,
+          code: (error as any).code || (error as any).name,
+        });
+        const userMessage = formatAuthError(error);
+        return { error: new Error(userMessage) };
       }
+
+      console.log('[Supabase Auth] signUp response: User ID:', data.user?.id, 'Session active:', Boolean(data.session));
 
       // Check if email confirmation is required by checking if user exists but session is null
       const needsConfirmation = !data.session && Boolean(data.user);
 
       return { error: null, needsEmailConfirmation: needsConfirmation };
     } catch (err: any) {
-      return { error: new Error(err.message || 'Failed to sign up') };
+      console.error('[Supabase Auth] Unexpected signUp exception:', err);
+      const userMessage = formatAuthError(err);
+      return { error: new Error(userMessage) };
     }
   };
 

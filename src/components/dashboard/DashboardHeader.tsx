@@ -79,8 +79,24 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           {/* Right: Plan badge, Theme toggle & User Menu */}
           <div className="flex items-center gap-2.5 sm:gap-3">
             {/* Active Plan badge */}
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-semibold bg-white/5 border border-white/10 text-blue-400">
-              {userProfile?.plan === 'pro' ? `PRO PLAN (${formatINR(PRICING_PLANS.pro.annualPrice)}/yr)` : `FREE PLAN (${formatINR(0)})`}
+            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+              userProfile?.subscriptionStatus === 'pending_verification'
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                : userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                : userProfile?.plan === 'pro_annual' || userProfile?.plan === 'annual' || userProfile?.plan === 'pro'
+                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                : 'bg-white/5 border-white/10 text-slate-400'
+            }`}>
+              {userProfile?.subscriptionStatus === 'pending_verification'
+                ? userProfile?.plan === 'pro_monthly' || userProfile?.billingCycle === 'monthly'
+                  ? `STUDENT PRO (${formatINR(499)}) — PENDING`
+                  : `STUDENT PRO (${formatINR(1499)}) — PENDING`
+                : userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
+                ? `STUDENT PRO — MONTHLY (${formatINR(499)})`
+                : userProfile?.plan === 'pro_annual' || userProfile?.plan === 'annual' || (userProfile?.plan === 'pro' && !userProfile?.billingCycle) || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'annual')
+                ? `STUDENT PRO — ANNUAL (${formatINR(1499)})`
+                : `FREE PLAN (${formatINR(0)})`}
             </span>
 
             <ThemeToggle id="dashboard-theme-toggle" />

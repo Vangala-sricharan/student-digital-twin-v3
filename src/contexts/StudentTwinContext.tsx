@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useAuth } from './AuthContext';
+import { useDemo } from './DemoContext';
 import { studentTwinService } from '../services/studentTwinService';
 import {
   UserProfile,
@@ -8,6 +9,7 @@ import {
   ProjectItem,
   AchievementItem,
   CareerGoalItem,
+  SubscriptionRecord,
   OnboardingFormData,
 } from '../types';
 
@@ -57,7 +59,8 @@ interface StudentTwinContextType {
   deleteCareerGoal: (id: string) => Promise<{ success: boolean; error: Error | null }>;
   setActiveGoal: (id: string) => Promise<{ success: boolean; error: Error | null }>;
   // Explicit Cloud upload
-  uploadDataToCloud: () => Promise<{ success: boolean; message: string; error: Error | null }>;
+  uploadDataToCloud: (overrideProfile?: Partial<UserProfile>) => Promise<{ success: boolean; message: string; error: Error | null }>;
+  upgradeSubscription: (targetPlan: 'pro_monthly' | 'pro_annual', billingCycle: 'monthly' | 'annual', transactionRef?: string) => Promise<{ success: boolean; error: Error | null }>;
   refreshData: () => Promise<void>;
 }
 
@@ -65,6 +68,7 @@ const StudentTwinContext = createContext<StudentTwinContextType | undefined>(und
 
 export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
+  const { isDemoMode, demoProfile, updateDemoProfile } = useDemo();
   const userId = user?.id || '';
 
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -211,6 +215,10 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     try {
       setIsSyncing(true);
+      const parsedSkills = data.currentSkills
+        ? data.currentSkills.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
+
       // 1. Save User Profile
       const updatedProfile: UserProfile = {
         id: userId,
@@ -221,8 +229,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         branch: data.branch,
         program: `${data.degree} in ${data.branch}`,
         year: data.year,
+        expectedGraduationYear: data.expectedGraduationYear,
         careerGoal: data.careerGoal,
         targetRole: data.targetRole || data.careerGoal,
+        currentSkills: data.currentSkills || '',
+        skills: parsedSkills,
         bio: data.bio || '',
         githubUrl: data.githubUrl || '',
         linkedinUrl: data.linkedinUrl || '',
@@ -247,8 +258,10 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         degree: data.degree,
         branch: data.branch,
         year: data.year,
+        expectedGraduationYear: data.expectedGraduationYear,
         careerGoal: data.careerGoal,
         targetRole: data.targetRole || data.careerGoal,
+        currentSkills: data.currentSkills || '',
         profileData: {
           bio: data.bio || '',
           githubUrl: data.githubUrl || '',
@@ -265,6 +278,46 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setStudentProfiles([newStudent]);
         setActiveStudentProfileId(newStudent.id);
         localStorage.setItem(`sdt_user_${userId}_active_student_id`, newStudent.id);
+
+        // 3. If skills were entered, initialize skill items
+        if (parsedSkills.length > 0) {
+          const createdSkills: SkillItem[] = [];
+          for (const skillName of parsedSkills) {
+            try {
+              const { data: skillItem } = await studentTwinService.addSkill(userId, {
+                studentProfileId: newStudent.id,
+                skillName,
+                category: 'Programming',
+                proficiency: 'Intermediate',
+                score: 75,
+              });
+              if (skillItem) {
+                createdSkills.push(skillItem);
+              }
+            } catch {}
+          }
+          if (createdSkills.length > 0) {
+            setAllSkills(createdSkills);
+          }
+        }
+
+        // 4. Initialize career goal item
+        if (data.careerGoal) {
+          try {
+            const { data: goalItem } = await studentTwinService.addCareerGoal(userId, {
+              studentProfileId: newStudent.id,
+              goal: `Become a ${data.careerGoal}`,
+              targetRole: data.targetRole || data.careerGoal,
+              targetCompanies: ['Top Tech Companies', 'High-Growth Startups'],
+              requiredSkills: parsedSkills.slice(0, 4),
+              timeline: `By ${data.expectedGraduationYear || 'Graduation'}`,
+              isActive: true,
+            });
+            if (goalItem) {
+              setAllCareerGoals([goalItem]);
+            }
+          } catch {}
+        }
       }
 
       setShowOnboarding(false);
@@ -485,7 +538,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   // Explicit Cloud Upload (Requirement 17)
-  const uploadDataToCloud = async (): Promise<{ success: boolean; message: string; error: Error | null }> => {
+  const uploadDataToCloud = async (overrideProfile?: Partial<UserProfile>): Promise<{ success: boolean; message: string; error: Error | null }> => {
     if (!userId || !userProfile) {
       return { success: false, message: 'User is not logged in', error: new Error('Not authenticated') };
     }
@@ -494,9 +547,14 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setSyncStatus('syncing');
     setSyncMessage('Uploading student twin records to Supabase...');
 
+    const profileToUpload: UserProfile = {
+      ...userProfile,
+      ...(overrideProfile || {}),
+    };
+
     const res = await studentTwinService.uploadDataToCloud(
       userId,
-      userProfile,
+      profileToUpload,
       studentProfiles,
       allSkills,
       allProjects,
@@ -518,6 +576,108 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
 
     return res;
+  };
+
+  const upgradeSubscription = async (
+    targetPlan: 'pro_monthly' | 'pro_annual',
+    billingCycle: 'monthly' | 'annual',
+    transactionRef?: string
+  ): Promise<{ success: boolean; error: Error | null }> => {
+    // Determine target plan strictly by selected billing cycle (NEVER activate annual when monthly is selected)
+    const confirmedTargetPlan: 'pro_monthly' | 'pro_annual' = billingCycle === 'annual' ? 'pro_annual' : 'pro_monthly';
+    const amount = billingCycle === 'annual' ? 1499 : 499;
+    const now = new Date();
+    const expiresAt = new Date(now);
+    if (billingCycle === 'annual') {
+      expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+    } else {
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+    }
+
+    if (isDemoMode) {
+      const subRecord: SubscriptionRecord = {
+        userId: demoProfile.id,
+        email: demoProfile.email || 'vangalasricharan7@gmail.com',
+        selectedPlan: confirmedTargetPlan,
+        billingCycle,
+        amount,
+        currency: 'INR',
+        paymentMethod: 'UPI',
+        upiId: '8520981574@ybl',
+        transactionRef: transactionRef?.trim() || `DEMO_UPI_${Date.now()}`,
+        paymentStatus: 'paid',
+        subscriptionStatus: 'active',
+        startedAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        createdAt: now.toISOString(),
+      };
+
+      const updatedProfile: UserProfile = {
+        ...demoProfile,
+        plan: confirmedTargetPlan,
+        billingCycle,
+        subscriptionStatus: 'active',
+        subscriptionDetails: subRecord,
+        updatedAt: new Date().toISOString(),
+      };
+
+      updateDemoProfile(updatedProfile);
+      setUserProfile(updatedProfile);
+      return { success: true, error: null };
+    }
+
+    if (!userId || !userProfile) {
+      return { success: false, error: new Error('User is not authenticated') };
+    }
+
+    try {
+      setIsSyncing(true);
+
+      const subRecord: SubscriptionRecord = {
+        userId,
+        email: userProfile.email || user?.email || '',
+        selectedPlan: confirmedTargetPlan,
+        billingCycle,
+        amount,
+        currency: 'INR',
+        paymentMethod: 'UPI',
+        upiId: '8520981574@ybl',
+        transactionRef: transactionRef?.trim() || undefined,
+        paymentStatus: 'paid',
+        subscriptionStatus: 'active',
+        startedAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        createdAt: now.toISOString(),
+      };
+
+      const { data: savedSub, error: subErr } = await studentTwinService.saveSubscription(userId, subRecord);
+      if (subErr) {
+        console.error('[StudentTwinContext] saveSubscription error:', subErr);
+        setIsSyncing(false);
+        return { success: false, error: subErr };
+      }
+
+      const updatedProfile: UserProfile = {
+        ...userProfile,
+        plan: confirmedTargetPlan,
+        billingCycle,
+        subscriptionStatus: 'active',
+        subscriptionDetails: savedSub || subRecord,
+        updatedAt: new Date().toISOString(),
+      };
+
+      setUserProfile(updatedProfile);
+
+      // Persist user profile directly
+      await studentTwinService.upsertUserProfile(userId, updatedProfile);
+
+      setIsSyncing(false);
+      return { success: true, error: null };
+    } catch (err: any) {
+      setIsSyncing(false);
+      console.error('[StudentTwinContext] upgradeSubscription error:', err);
+      return { success: false, error: new Error(err.message || 'Failed to submit subscription upgrade') };
+    }
   };
 
   const refreshData = async () => {
@@ -569,6 +729,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         deleteCareerGoal,
         setActiveGoal,
         uploadDataToCloud,
+        upgradeSubscription,
         refreshData,
       }}
     >

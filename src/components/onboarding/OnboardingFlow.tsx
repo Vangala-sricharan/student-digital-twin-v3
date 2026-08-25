@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import {
   User,
+  Mail,
   GraduationCap,
   BookOpen,
+  Calendar,
   Target,
   Sparkles,
-  ArrowRight,
   CheckCircle2,
   AlertCircle,
   Github,
   Linkedin,
-  Phone,
-  MapPin,
+  Code2,
   FileText,
-  Briefcase,
+  Lock,
 } from 'lucide-react';
 import { Button } from '../common/Button';
 import { Card } from '../common/Card';
@@ -33,22 +33,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   onComplete,
   isSubmitting = false,
 }) => {
+  const currentYear = new Date().getFullYear();
   const [formData, setFormData] = useState<OnboardingFormData>({
     fullName: initialName || '',
+    email: initialEmail || '',
     university: '',
     degree: 'B.Tech',
     branch: '',
     year: '1st Year',
+    expectedGraduationYear: String(currentYear + 4),
     careerGoal: '',
     targetRole: '',
+    currentSkills: '',
     bio: '',
     githubUrl: '',
     linkedinUrl: '',
-    phone: '',
-    location: '',
   });
 
-  const [step, setStep] = useState<1 | 2>(1);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const degreeOptions = [
@@ -59,6 +60,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     'M.Tech',
     'M.S. / M.Sc',
     'MCA',
+    'MBA',
     'Ph.D.',
     'Other Degree',
   ];
@@ -69,116 +71,192 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     '3rd Year',
     '4th Year',
     'Final Year',
-    'Graduate / Alum',
+    'Postgraduate / Masters',
+    'Recent Graduate',
   ];
 
-  const handleStep1Submit = (e: React.FormEvent) => {
+  const gradYearOptions = [
+    String(currentYear),
+    String(currentYear + 1),
+    String(currentYear + 2),
+    String(currentYear + 3),
+    String(currentYear + 4),
+    String(currentYear + 5),
+    String(currentYear + 6),
+  ];
+
+  const skillSuggestions = [
+    'Python',
+    'React',
+    'TypeScript',
+    'JavaScript',
+    'Java',
+    'C++',
+    'DSA',
+    'SQL',
+    'Node.js',
+    'Machine Learning',
+    'Cloud / AWS',
+    'Git / GitHub',
+  ];
+
+  const handleAddSkillTag = (skill: string) => {
+    const existing = formData.currentSkills
+      ? formData.currentSkills.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    if (!existing.includes(skill)) {
+      const updated = [...existing, skill].join(', ');
+      setFormData((prev) => ({ ...prev, currentSkills: updated }));
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
-    // Validate required fields
+    // Validation for required fields
     if (!formData.fullName.trim()) {
-      setErrorMsg('Full Name is required');
+      setErrorMsg('Please enter your Full Name.');
       return;
     }
     if (!formData.university.trim()) {
-      setErrorMsg('University / College Name is required');
+      setErrorMsg('Please enter your University or College name.');
       return;
     }
     if (!formData.degree.trim()) {
-      setErrorMsg('Degree is required');
+      setErrorMsg('Please select your Degree.');
       return;
     }
     if (!formData.branch.trim()) {
-      setErrorMsg('Branch / Specialization is required (e.g. Computer Science)');
+      setErrorMsg('Please enter your Branch / Specialization.');
       return;
     }
     if (!formData.year.trim()) {
-      setErrorMsg('Academic Year is required');
+      setErrorMsg('Please select your Current Academic Year.');
+      return;
+    }
+    if (!formData.expectedGraduationYear.trim()) {
+      setErrorMsg('Please select your Expected Graduation Year.');
       return;
     }
     if (!formData.careerGoal.trim()) {
-      setErrorMsg('Career Goal is required (e.g. AI/ML Engineer)');
+      setErrorMsg('Please enter your Career Goal or Target Role.');
       return;
     }
 
-    setStep(2);
-  };
-
-  const handleFinalSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-
-    const result = await onComplete({
+    const payload: OnboardingFormData = {
       ...formData,
+      email: initialEmail || formData.email,
+      fullName: formData.fullName.trim(),
+      university: formData.university.trim(),
+      degree: formData.degree.trim(),
+      branch: formData.branch.trim(),
+      year: formData.year.trim(),
+      expectedGraduationYear: formData.expectedGraduationYear.trim(),
+      careerGoal: formData.careerGoal.trim(),
       targetRole: formData.targetRole?.trim() || formData.careerGoal.trim(),
-    });
+      currentSkills: formData.currentSkills?.trim() || '',
+      bio: formData.bio?.trim() || '',
+      githubUrl: formData.githubUrl?.trim() || '',
+      linkedinUrl: formData.linkedinUrl?.trim() || '',
+    };
 
+    const result = await onComplete(payload);
     if (!result.success && result.error) {
       setErrorMsg(result.error.message);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md overflow-y-auto">
-      <div className="w-full max-w-2xl my-8">
-        <Card className="p-6 sm:p-8 border-slate-700 dark:border-slate-800 light:border-sky-200 shadow-2xl bg-[#0a0a0c] dark:bg-[#0a0a0c] light:bg-white text-slate-100 dark:text-slate-100 light:text-slate-900">
-          {/* Header */}
-          <div className="flex items-center justify-between pb-4 mb-6 border-b border-white/10 dark:border-white/10 light:border-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+      <div className="w-full max-w-3xl my-6">
+        <Card className="p-6 sm:p-8 border-slate-700 dark:border-slate-800 light:border-sky-200 shadow-2xl bg-[#0a0a0c] dark:bg-[#0a0a0c] light:bg-white text-slate-100 dark:text-slate-100 light:text-slate-900 max-h-[92vh] overflow-y-auto">
+          {/* Top Banner & Header */}
+          <div className="flex items-start justify-between pb-5 mb-6 border-b border-white/10 dark:border-white/10 light:border-slate-200">
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <Badge variant="blue" size="sm" dot>
-                  STEP {step} OF 2
+                  FIRST-TIME PROFILE SETUP
                 </Badge>
-                <span className="text-xs text-slate-400">Personal Onboarding</span>
+                <span className="text-xs text-slate-400">Step 1 of 1</span>
               </div>
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 dark:text-slate-100 light:text-slate-900">
-                {step === 1 ? 'Initialize Your Student Digital Twin' : 'Portfolio & Social Profiles (Optional)'}
+              <h2 className="text-2xl font-extrabold tracking-tight text-slate-100 dark:text-slate-100 light:text-slate-900 flex items-center gap-2">
+                Build Your Student Digital Twin
               </h2>
-              <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-1">
-                {step === 1
-                  ? 'Enter your real academic credentials. Your account starts on the Free Plan (₹0).'
-                  : 'Add social profiles to calibrate your digital twin for future skills ingestion.'}
+              <p className="text-sm text-slate-400 dark:text-slate-400 light:text-slate-600 mt-1">
+                Tell us a little about yourself to personalize your career workspace.
               </p>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5" />
+            <div className="w-12 h-12 rounded-2xl bg-blue-600/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+              <Sparkles className="w-6 h-6" />
             </div>
           </div>
 
           {errorMsg && (
-            <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
+            <div className="mb-6 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2.5">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          {step === 1 ? (
-            <form onSubmit={handleStep1Submit} className="space-y-4">
-              {/* Full Name */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                  Full Name <span className="text-rose-400">*</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                    <User className="w-4 h-4" />
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Section 1: Academic Identity */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-1 border-b border-white/5 dark:border-white/5 light:border-slate-100">
+                <GraduationCap className="w-4 h-4 text-blue-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 dark:text-slate-300 light:text-slate-700">
+                  1. Academic Identity & Contact
+                </span>
+              </div>
+
+              {/* Full Name & Email */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                    Full Name <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="onboarding-fullname"
+                      type="text"
+                      required
+                      value={formData.fullName}
+                      onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                      placeholder="e.g. Alex Johnson"
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
                   </div>
-                  <input
-                    id="onboarding-fullname"
-                    type="text"
-                    required
-                    value={formData.fullName}
-                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                    placeholder="e.g. Alex Johnson"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5 flex items-center justify-between">
+                    <span>Email Address</span>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Read-only
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="onboarding-email"
+                      type="email"
+                      readOnly
+                      disabled
+                      value={initialEmail || formData.email}
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-900/60 dark:bg-slate-900/60 light:bg-slate-100 border border-slate-800 dark:border-slate-800 light:border-slate-300 text-slate-400 cursor-not-allowed select-none"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* University */}
+              {/* University / College */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
                   University / College <span className="text-rose-400">*</span>
                 </label>
                 <div className="relative">
@@ -197,10 +275,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </div>
               </div>
 
-              {/* Degree & Year */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Degree, Branch, Current Year, Expected Grad Year */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
                     Degree <span className="text-rose-400">*</span>
                   </label>
                   <select
@@ -218,18 +296,33 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                    Academic Year <span className="text-rose-400">*</span>
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                    Branch / Specialization <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    id="onboarding-branch"
+                    type="text"
+                    required
+                    value={formData.branch}
+                    onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
+                    placeholder="e.g. Computer Science (AI/ML)"
+                    className="w-full px-3 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                    Current Year <span className="text-rose-400">*</span>
                   </label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                      <BookOpen className="w-4 h-4" />
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                      <BookOpen className="w-3.5 h-3.5" />
                     </div>
                     <select
                       id="onboarding-year"
                       value={formData.year}
                       onChange={(e) => setFormData({ ...formData, year: e.target.value })}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      className="w-full pl-8 pr-2 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                     >
                       {yearOptions.map((yr) => (
                         <option key={yr} value={yr} className="bg-slate-900 text-white">
@@ -239,28 +332,45 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                     </select>
                   </div>
                 </div>
-              </div>
 
-              {/* Branch / Major */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                  Branch / Major <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  id="onboarding-branch"
-                  type="text"
-                  required
-                  value={formData.branch}
-                  onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                  placeholder="e.g. Computer Science and Engineering (AI/ML)"
-                  className="w-full px-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                    Graduation Year <span className="text-rose-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                      <Calendar className="w-3.5 h-3.5" />
+                    </div>
+                    <select
+                      id="onboarding-grad-year"
+                      value={formData.expectedGraduationYear}
+                      onChange={(e) => setFormData({ ...formData, expectedGraduationYear: e.target.value })}
+                      className="w-full pl-8 pr-2 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    >
+                      {gradYearOptions.map((gy) => (
+                        <option key={gy} value={gy} className="bg-slate-900 text-white">
+                          {gy}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Career Goal & Current Skills */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-1 border-b border-white/5 dark:border-white/5 light:border-slate-100">
+                <Target className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 dark:text-slate-300 light:text-slate-700">
+                  2. Career Goals & Skills
+                </span>
               </div>
 
               {/* Career Goal */}
               <div>
-                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                  Primary Career Goal <span className="text-rose-400">*</span>
+                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                  Career Goal / Target Role <span className="text-rose-400">*</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -272,72 +382,80 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                     required
                     value={formData.careerGoal}
                     onChange={(e) => setFormData({ ...formData, careerGoal: e.target.value })}
-                    placeholder="e.g. AI/ML Engineer, Full Stack Developer, Data Scientist"
+                    placeholder="e.g. AI/ML Engineer, Full Stack Developer, Data Scientist, Cloud Architect"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
               </div>
 
-              <div className="pt-4 flex justify-end">
-                <Button
-                  id="onboarding-next-btn"
-                  type="submit"
-                  variant="primary"
-                  size="md"
-                  rightIcon={<ArrowRight className="w-4 h-4" />}
-                >
-                  Continue to Next Step
-                </Button>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleFinalSubmit} className="space-y-4">
-              {/* Target Role & Location */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                    Target Job Role (Optional)
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                      <Briefcase className="w-4 h-4" />
-                    </div>
-                    <input
-                      id="onboarding-target-role"
-                      type="text"
-                      value={formData.targetRole}
-                      onChange={(e) => setFormData({ ...formData, targetRole: e.target.value })}
-                      placeholder={formData.careerGoal || 'e.g. Junior ML Engineer'}
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
+              {/* Current Skills with suggestions */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                  Current Skills (comma-separated)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
+                    <Code2 className="w-4 h-4" />
                   </div>
+                  <input
+                    id="onboarding-skills"
+                    type="text"
+                    value={formData.currentSkills}
+                    onChange={(e) => setFormData({ ...formData, currentSkills: e.target.value })}
+                    placeholder="e.g. Python, React, TypeScript, SQL, Machine Learning"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                    Location / City (Optional)
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                      <MapPin className="w-4 h-4" />
-                    </div>
-                    <input
-                      id="onboarding-location"
-                      type="text"
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      placeholder="e.g. Bengaluru, India / San Francisco, CA"
-                      className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                  </div>
+                {/* Skill tag suggestions */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="text-[11px] text-slate-400 py-0.5">Quick add:</span>
+                  {skillSuggestions.map((skill) => (
+                    <button
+                      key={skill}
+                      type="button"
+                      onClick={() => handleAddSkillTag(skill)}
+                      className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-800/80 hover:bg-blue-600/30 text-slate-300 hover:text-blue-200 border border-slate-700 transition-colors"
+                    >
+                      + {skill}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* GitHub & LinkedIn */}
+              {/* Short Bio / About */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                  Short Bio / About Yourself (Optional)
+                </label>
+                <div className="relative">
+                  <div className="absolute top-3 left-3.5 pointer-events-none text-slate-500">
+                    <FileText className="w-4 h-4" />
+                  </div>
+                  <textarea
+                    id="onboarding-bio"
+                    rows={2}
+                    value={formData.bio}
+                    onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                    placeholder="Tell your digital twin about your core technical interests, passions, and background..."
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Professional Links */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 pb-1 border-b border-white/5 dark:border-white/5 light:border-slate-100">
+                <Github className="w-4 h-4 text-purple-400" />
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 dark:text-slate-300 light:text-slate-700">
+                  3. Online Profiles (Optional)
+                </span>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                    GitHub Profile URL (Optional)
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                    GitHub URL (Optional)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -355,8 +473,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                    LinkedIn Profile URL (Optional)
+                  <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1.5">
+                    LinkedIn URL (Optional)
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
@@ -373,65 +491,26 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Phone */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                  Phone / Mobile (Optional)
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
-                    <Phone className="w-4 h-4" />
-                  </div>
-                  <input
-                    id="onboarding-phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    placeholder="+91 9876543210"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
+            {/* Bottom Actions */}
+            <div className="pt-4 border-t border-white/10 dark:border-white/10 light:border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-slate-400">
+                <span className="text-emerald-400 font-semibold">Free Plan (₹0)</span> included with AI Assistant & twin calibration.
               </div>
-
-              {/* Bio */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 mb-1">
-                  Short Bio / Aspirations (Optional)
-                </label>
-                <textarea
-                  id="onboarding-bio"
-                  rows={2}
-                  value={formData.bio}
-                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                  placeholder="Tell your digital twin about your core technical interests and projects..."
-                  className="w-full px-4 py-2.5 rounded-xl text-sm bg-slate-950/80 dark:bg-slate-950/80 light:bg-sky-50/70 border border-slate-800 dark:border-slate-800 light:border-sky-300 text-slate-100 dark:text-slate-100 light:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-
-              <div className="pt-4 flex items-center justify-between">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="md"
-                  onClick={() => setStep(1)}
-                  disabled={isSubmitting}
-                >
-                  Back
-                </Button>
-                <Button
-                  id="onboarding-submit-btn"
-                  type="submit"
-                  variant="primary"
-                  size="md"
-                  isLoading={isSubmitting}
-                  leftIcon={<CheckCircle2 className="w-4 h-4" />}
-                >
-                  Save & Launch Digital Twin
-                </Button>
-              </div>
-            </form>
-          )}
+              <Button
+                id="onboarding-submit-btn"
+                type="submit"
+                variant="primary"
+                size="lg"
+                isLoading={isSubmitting}
+                className="w-full sm:w-auto px-8"
+                leftIcon={<CheckCircle2 className="w-4 h-4" />}
+              >
+                Create My Student Twin
+              </Button>
+            </div>
+          </form>
         </Card>
       </div>
     </div>

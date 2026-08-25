@@ -15,7 +15,7 @@ import {
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DemoProvider, useDemo } from './contexts/DemoContext';
-import { StudentTwinProvider } from './contexts/StudentTwinContext';
+import { StudentTwinProvider, useStudentTwin } from './contexts/StudentTwinContext';
 import { NavTab, UserProfile } from './types';
 
 // Layout
@@ -34,10 +34,11 @@ import { PricingPreview } from './components/landing/PricingPreview';
 import { FounderSection } from './components/landing/FounderSection';
 import { ContactSection } from './components/landing/ContactSection';
 
-// Auth Components
+// Auth & Onboarding Components
 import { LoginForm } from './components/auth/LoginForm';
 import { SignupForm } from './components/auth/SignupForm';
 import { ForgotPasswordModal } from './components/auth/ForgotPasswordModal';
+import { OnboardingFlow } from './components/onboarding/OnboardingFlow';
 
 // Demo Components
 import { DemoBanner } from './components/demo/DemoBanner';
@@ -72,13 +73,21 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 const MainAppContent: React.FC = () => {
   const { user, profile, isAuthenticated, isLoading: isAuthLoading, signOut } = useAuth();
   const { isDemoMode, enterDemo, exitDemo, demoProfile } = useDemo();
+  const {
+    userProfile: twinProfile,
+    showOnboarding,
+    completeOnboarding,
+    isSyncing,
+    isLoading: isTwinLoading,
+  } = useStudentTwin();
 
   const [currentView, setCurrentView] = useState<'landing' | 'login' | 'signup'>('landing');
+  const [authEmailPrefill, setAuthEmailPrefill] = useState<string>('');
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   // Loading state
-  if (isAuthLoading) {
+  if (isAuthLoading || (isAuthenticated && isTwinLoading && !twinProfile)) {
     return (
       <div className="min-h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center text-[var(--text-primary)]">
         <LoadingSpinner size="lg" />
@@ -199,10 +208,10 @@ const MainAppContent: React.FC = () => {
 
   // Handle Authenticated User Dashboard
   if (isAuthenticated && user) {
-    const userProfile: UserProfile = profile || {
+    const userProfile: UserProfile = twinProfile || profile || {
       id: user.id,
       email: user.email || 'student@university.edu',
-      fullName: user.user_metadata?.full_name || 'Student User',
+      fullName: user.user_metadata?.full_name || user.user_metadata?.name || 'Student User',
       university: '',
       degree: '',
       branch: '',
@@ -215,7 +224,17 @@ const MainAppContent: React.FC = () => {
     };
 
     return (
-      <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] transition-colors flex flex-col">
+      <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] transition-colors flex flex-col relative">
+        {/* First-Time User Profile Setup Modal */}
+        {showOnboarding && (
+          <OnboardingFlow
+            initialName={user.user_metadata?.full_name || user.user_metadata?.name || userProfile.fullName || ''}
+            initialEmail={user.email || userProfile.email || ''}
+            onComplete={completeOnboarding}
+            isSubmitting={isSyncing}
+          />
+        )}
+
         <DashboardHeader
           userProfile={userProfile}
           activeTab={activeTab}
@@ -306,12 +325,20 @@ const MainAppContent: React.FC = () => {
     return (
       <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] flex items-center justify-center p-4">
         <LoginForm
-          onSwitchToSignup={() => setCurrentView('signup')}
-          onForgotPassword={() => setIsForgotPasswordOpen(true)}
+          initialEmail={authEmailPrefill}
+          onSwitchToSignup={(email) => {
+            if (email) setAuthEmailPrefill(email);
+            setCurrentView('signup');
+          }}
+          onForgotPassword={(email) => {
+            if (email) setAuthEmailPrefill(email);
+            setIsForgotPasswordOpen(true);
+          }}
           onBackToHome={() => setCurrentView('landing')}
         />
         <ForgotPasswordModal
           isOpen={isForgotPasswordOpen}
+          initialEmail={authEmailPrefill}
           onClose={() => setIsForgotPasswordOpen(false)}
         />
       </div>
@@ -323,7 +350,11 @@ const MainAppContent: React.FC = () => {
     return (
       <div className="min-h-screen bg-[var(--bg-app)] text-[var(--text-primary)] flex items-center justify-center p-4">
         <SignupForm
-          onSwitchToLogin={() => setCurrentView('login')}
+          initialEmail={authEmailPrefill}
+          onSwitchToLogin={(email) => {
+            if (email) setAuthEmailPrefill(email);
+            setCurrentView('login');
+          }}
           onBackToHome={() => setCurrentView('landing')}
         />
       </div>

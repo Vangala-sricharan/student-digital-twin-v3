@@ -7,17 +7,25 @@ import { useAuth } from '../../contexts/AuthContext';
 interface ForgotPasswordModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialEmail?: string;
 }
 
 export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   isOpen,
   onClose,
+  initialEmail = '',
 }) => {
   const { resetPassword } = useAuth();
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [error, setError] = useState('');
   const [isSuccess, setIsSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  React.useEffect(() => {
+    if (isOpen && initialEmail) {
+      setEmail(initialEmail);
+    }
+  }, [isOpen, initialEmail]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

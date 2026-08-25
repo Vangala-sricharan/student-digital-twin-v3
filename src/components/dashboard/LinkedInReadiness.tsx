@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Linkedin,
   Sparkles,
@@ -12,6 +12,8 @@ import {
   TrendingUp,
   Info,
   ExternalLink,
+  X,
+  FileCheck,
 } from 'lucide-react';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,6 +30,7 @@ interface LinkedInReadinessProps {
 export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = false }) => {
   const { user } = useAuth();
   const { activeStudentProfile } = useStudentTwin();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [linkedinUrl, setLinkedinUrl] = useState<string>(() => {
     return activeStudentProfile?.linkedinUrl || 'https://linkedin.com/in/student';
@@ -35,6 +38,9 @@ export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = f
   const [profileText, setProfileText] = useState<string>('');
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [pdfFileName, setPdfFileName] = useState<string | null>(null);
+  const [pdfFileSize, setPdfFileSize] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [isProcessingFile, setIsProcessingFile] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<LinkedInReadinessResult | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -63,23 +69,110 @@ export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = f
     }
   }, [linkedinUrl, user?.id, isDemo]);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const validateAndProcessFile = (file: File) => {
+    const isPdf =
+      file.type === 'application/pdf' ||
+      file.type.includes('pdf') ||
+      file.name.toLowerCase().endsWith('.pdf');
 
-    if (file.type !== 'application/pdf') {
-      setErrorMessage('Please upload a valid PDF exported from your LinkedIn profile.');
+    if (!isPdf) {
+      setErrorMessage('Please upload a valid .pdf file exported from your LinkedIn profile.');
       return;
     }
 
-    setPdfFileName(file.name);
+    if (file.size === 0) {
+      setErrorMessage('The selected PDF file is empty (0 bytes). Please upload a valid LinkedIn PDF export.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorMessage('File size exceeds the 5MB limit. Please upload a standard LinkedIn PDF export.');
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsProcessingFile(true);
+
     const reader = new FileReader();
     reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      const base64 = result.includes(',') ? result.split(',')[1] : '';
-      setPdfBase64(base64);
+      try {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        const base64 = result.includes(',') ? result.split(',')[1] : result;
+        if (!base64 || base64.trim().length === 0) {
+          setErrorMessage('Failed to read the PDF content. Please try again or paste your profile text.');
+          setPdfBase64(null);
+          setPdfFileName(null);
+          setPdfFileSize(null);
+        } else {
+          setPdfBase64(base64);
+          setPdfFileName(file.name);
+          setPdfFileSize(file.size);
+        }
+      } catch {
+        setErrorMessage('Failed to process the uploaded PDF file. Please try again.');
+        setPdfBase64(null);
+        setPdfFileName(null);
+        setPdfFileSize(null);
+      } finally {
+        setIsProcessingFile(false);
+      }
     };
+
+    reader.onerror = () => {
+      setErrorMessage('An error occurred while reading the PDF file. Please try again.');
+      setPdfBase64(null);
+      setPdfFileName(null);
+      setPdfFileSize(null);
+      setIsProcessingFile(false);
+    };
+
     reader.readAsDataURL(file);
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      validateAndProcessFile(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      validateAndProcessFile(file);
+    }
+  };
+
+  const handleRemoveFile = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setPdfBase64(null);
+    setPdfFileName(null);
+    setPdfFileSize(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const handleRunAudit = async () => {
@@ -186,23 +279,61 @@ export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = f
               <span className="text-xs font-semibold text-slate-400 block mb-1.5">
                 Option A: Upload LinkedIn PDF
               </span>
-              <label
-                htmlFor="linkedin-pdf-input"
-                className="border-2 border-dashed border-slate-800 dark:border-slate-800 light:border-slate-300 hover:border-slate-700 rounded-xl p-4 text-center cursor-pointer flex flex-col items-center justify-center transition-colors bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-50"
-              >
-                <Upload className="w-6 h-6 text-slate-400 mb-1" />
-                <span className="text-xs text-slate-300 font-medium">
-                  {pdfFileName ? `Loaded: ${pdfFileName}` : 'Choose or drag LinkedIn PDF export'}
-                </span>
-                <span className="text-[10px] text-slate-500 mt-0.5">Supports standard .pdf exports</span>
-                <input
-                  id="linkedin-pdf-input"
-                  type="file"
-                  accept="application/pdf"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-              </label>
+              
+              {pdfBase64 && pdfFileName ? (
+                <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-950/20 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                      <FileCheck className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800 truncate">
+                        {pdfFileName}
+                      </p>
+                      <p className="text-[10px] text-emerald-400 font-medium">
+                        {pdfFileSize ? formatFileSize(pdfFileSize) : 'PDF Document'} · Ready for Recruiter Audit
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRemoveFile}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                    title="Remove PDF"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <label
+                  htmlFor="linkedin-pdf-input"
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer flex flex-col items-center justify-center transition-all ${
+                    isDragging
+                      ? 'border-[#0077b5] bg-[#0077b5]/10 scale-[1.01]'
+                      : 'border-slate-800 dark:border-slate-800 light:border-slate-300 hover:border-slate-700 bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-50'
+                  }`}
+                >
+                  <Upload className={`w-6 h-6 mb-1 ${isDragging ? 'text-[#0077b5]' : 'text-slate-400'}`} />
+                  <span className="text-xs text-slate-300 font-medium">
+                    {isProcessingFile ? 'Reading PDF document...' : isDragging ? 'Drop LinkedIn PDF here' : 'Choose or drag LinkedIn PDF export'}
+                  </span>
+                  <span className="text-[10px] text-slate-500 mt-0.5">Supports standard .pdf exports (Max 5MB)</span>
+                  <input
+                    ref={fileInputRef}
+                    id="linkedin-pdf-input"
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    onClick={(e) => {
+                      (e.target as HTMLInputElement).value = '';
+                    }}
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                  />
+                </label>
+              )}
             </div>
 
             {/* Text Paste Option */}
@@ -226,7 +357,7 @@ export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = f
               variant="primary"
               size="md"
               onClick={handleRunAudit}
-              disabled={isLoading}
+              disabled={isLoading || isProcessingFile}
               className="w-full justify-center bg-[#0077b5] hover:bg-[#006097]"
               leftIcon={
                 isLoading ? (

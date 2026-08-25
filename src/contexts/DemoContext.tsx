@@ -19,6 +19,7 @@ interface DemoContextType {
   demoProfile: UserProfile;
   enterDemo: () => void;
   exitDemo: () => void;
+  updateDemoProfile: (data: Partial<UserProfile>) => void;
 }
 
 const DemoContext = createContext<DemoContextType | undefined>(undefined);
@@ -27,6 +28,7 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isDemoMode, setIsDemoMode] = useState<boolean>(() => {
     return sessionStorage.getItem('sdt_demo_mode') === 'true';
   });
+  const [demoProfile, setDemoProfile] = useState<UserProfile>(DEMO_PROFILE);
 
   useEffect(() => {
     if (isDemoMode) {
@@ -44,13 +46,18 @@ export const DemoProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsDemoMode(false);
   };
 
+  const updateDemoProfile = (data: Partial<UserProfile>) => {
+    setDemoProfile((prev) => ({ ...prev, ...data }));
+  };
+
   return (
     <DemoContext.Provider
       value={{
         isDemoMode,
-        demoProfile: DEMO_PROFILE,
+        demoProfile,
         enterDemo,
         exitDemo,
+        updateDemoProfile,
       }}
     >
       {children}

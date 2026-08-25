@@ -6,6 +6,8 @@ import {
   ProjectItem,
   AchievementItem,
   CareerGoalItem,
+  SubscriptionRecord,
+  PlanType,
   OnboardingFormData,
 } from '../types';
 
@@ -21,45 +23,64 @@ export const studentTwinService = {
   async fetchUserProfile(userId: string): Promise<{ data: UserProfile | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
+    let cachedProfile: UserProfile | null = null;
     const cached = localStorage.getItem(getStorageKey(userId, 'profile'));
     if (cached) {
       try {
-        const parsed = JSON.parse(cached);
-        return { data: parsed, error: null };
+        cachedProfile = JSON.parse(cached);
       } catch {}
     }
 
-    // Attempt to reconstruct profile from Supabase Auth user metadata if available
+    // Attempt to reconstruct/sync profile from Supabase Auth user metadata
     if (isSupabaseConfigured) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error: userErr } = await supabase.auth.getUser();
+        if (userErr) {
+          console.error('[Supabase Service] fetchUserProfile getUser error:', {
+            message: userErr.message,
+            status: userErr.status,
+          });
+        }
+
         if (user && user.id === userId) {
           const fullName = user.user_metadata?.full_name || 
                            user.user_metadata?.name || 
                            user.email?.split('@')[0] || 
+                           cachedProfile?.fullName ||
                            'Student User';
           
+          const rawPlan = user.user_metadata?.plan || cachedProfile?.plan || 'free';
+          const billingCycle = user.user_metadata?.billing_cycle || cachedProfile?.billingCycle;
+          const subscriptionStatus = user.user_metadata?.subscription_status || cachedProfile?.subscriptionStatus;
+          const subscriptionDetails = user.user_metadata?.subscription_data || cachedProfile?.subscriptionDetails;
+
           const profile: UserProfile = {
             id: user.id,
-            email: user.email || '',
+            email: user.email || cachedProfile?.email || '',
             fullName,
-            avatarUrl: user.user_metadata?.avatar_url || user.user_metadata?.picture,
-            university: user.user_metadata?.university || '',
-            degree: user.user_metadata?.degree || '',
-            branch: user.user_metadata?.branch || '',
-            program: user.user_metadata?.program || (user.user_metadata?.degree && user.user_metadata?.branch ? `${user.user_metadata.degree} in ${user.user_metadata.branch}` : ''),
-            year: user.user_metadata?.year || '',
-            careerGoal: user.user_metadata?.career_goal || user.user_metadata?.careerGoal || '',
-            targetRole: user.user_metadata?.target_role || user.user_metadata?.targetRole || '',
-            bio: user.user_metadata?.bio || '',
-            githubUrl: user.user_metadata?.github_url || user.user_metadata?.githubUrl || '',
-            linkedinUrl: user.user_metadata?.linkedin_url || user.user_metadata?.linkedinUrl || '',
-            phone: user.user_metadata?.phone || '',
-            location: user.user_metadata?.location || '',
-            profileImageUrl: user.user_metadata?.profile_image_url || '',
-            plan: (user.user_metadata?.plan as any) || 'free',
-            isOnboarded: user.user_metadata?.is_onboarded ?? Boolean(user.user_metadata?.university && user.user_metadata?.year),
-            createdAt: user.created_at || new Date().toISOString(),
+            avatarUrl: user.user_metadata?.avatar_url || user.user_metadata?.picture || cachedProfile?.avatarUrl,
+            university: user.user_metadata?.university || cachedProfile?.university || '',
+            degree: user.user_metadata?.degree || cachedProfile?.degree || '',
+            branch: user.user_metadata?.branch || cachedProfile?.branch || '',
+            program: user.user_metadata?.program || (user.user_metadata?.degree && user.user_metadata?.branch ? `${user.user_metadata.degree} in ${user.user_metadata.branch}` : (cachedProfile?.program || '')),
+            year: user.user_metadata?.year || cachedProfile?.year || '',
+            expectedGraduationYear: user.user_metadata?.expected_graduation_year || user.user_metadata?.expectedGraduationYear || cachedProfile?.expectedGraduationYear || '',
+            careerGoal: user.user_metadata?.career_goal || user.user_metadata?.careerGoal || cachedProfile?.careerGoal || '',
+            targetRole: user.user_metadata?.target_role || user.user_metadata?.targetRole || cachedProfile?.targetRole || '',
+            currentSkills: user.user_metadata?.current_skills || user.user_metadata?.currentSkills || cachedProfile?.currentSkills || '',
+            skills: user.user_metadata?.skills || cachedProfile?.skills || [],
+            bio: user.user_metadata?.bio || cachedProfile?.bio || '',
+            githubUrl: user.user_metadata?.github_url || user.user_metadata?.githubUrl || cachedProfile?.githubUrl || '',
+            linkedinUrl: user.user_metadata?.linkedin_url || user.user_metadata?.linkedinUrl || cachedProfile?.linkedinUrl || '',
+            phone: user.user_metadata?.phone || cachedProfile?.phone || '',
+            location: user.user_metadata?.location || cachedProfile?.location || '',
+            profileImageUrl: user.user_metadata?.profile_image_url || cachedProfile?.profileImageUrl || '',
+            plan: rawPlan as PlanType,
+            billingCycle,
+            subscriptionStatus,
+            subscriptionDetails,
+            isOnboarded: user.user_metadata?.is_onboarded ?? (cachedProfile?.isOnboarded ?? Boolean(user.user_metadata?.university && user.user_metadata?.year)),
+            createdAt: user.created_at || cachedProfile?.createdAt || new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             isDemo: false,
           };
@@ -67,9 +88,13 @@ export const studentTwinService = {
           localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
           return { data: profile, error: null };
         }
-      } catch (err) {
-        console.warn('Notice reading user metadata from Supabase Auth:', err);
+      } catch (err: any) {
+        console.error('[Supabase Service] Notice reading user metadata from Supabase Auth:', err);
       }
+    }
+
+    if (cachedProfile) {
+      return { data: cachedProfile, error: null };
     }
 
     return { data: null, error: null };
@@ -77,6 +102,23 @@ export const studentTwinService = {
 
   async upsertUserProfile(userId: string, profile: Partial<UserProfile> & { email: string; fullName: string }): Promise<{ data: UserProfile | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
+
+    // Get current cache to avoid wiping existing plan or billing properties
+    let existingPlan: PlanType = 'free';
+    let existingCycle: 'monthly' | 'annual' | undefined;
+    let existingSubStatus: any;
+    let existingSubDetails: any;
+
+    const cached = localStorage.getItem(getStorageKey(userId, 'profile'));
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        existingPlan = parsed.plan || 'free';
+        existingCycle = parsed.billingCycle;
+        existingSubStatus = parsed.subscriptionStatus;
+        existingSubDetails = parsed.subscriptionDetails;
+      } catch {}
+    }
 
     const formattedProfile: UserProfile = {
       id: userId,
@@ -87,15 +129,21 @@ export const studentTwinService = {
       branch: profile.branch || '',
       program: profile.degree && profile.branch ? `${profile.degree} in ${profile.branch}` : (profile.branch || profile.degree || ''),
       year: profile.year || '',
+      expectedGraduationYear: profile.expectedGraduationYear || '',
       careerGoal: profile.careerGoal || '',
       targetRole: profile.targetRole || '',
+      currentSkills: profile.currentSkills || '',
+      skills: profile.skills || [],
       bio: profile.bio || '',
       githubUrl: profile.githubUrl || '',
       linkedinUrl: profile.linkedinUrl || '',
       phone: profile.phone || '',
       location: profile.location || '',
       profileImageUrl: profile.profileImageUrl || '',
-      plan: profile.plan || 'free',
+      plan: profile.plan || existingPlan,
+      billingCycle: profile.billingCycle || existingCycle,
+      subscriptionStatus: profile.subscriptionStatus || existingSubStatus,
+      subscriptionDetails: profile.subscriptionDetails || existingSubDetails,
       isOnboarded: profile.isOnboarded ?? true,
       createdAt: profile.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -108,7 +156,7 @@ export const studentTwinService = {
     // Sync to Supabase Auth user_metadata so authenticated session carries user details
     if (isSupabaseConfigured) {
       try {
-        await supabase.auth.updateUser({
+        const { error } = await supabase.auth.updateUser({
           data: {
             full_name: formattedProfile.fullName,
             university: formattedProfile.university,
@@ -116,23 +164,184 @@ export const studentTwinService = {
             branch: formattedProfile.branch,
             program: formattedProfile.program,
             year: formattedProfile.year,
+            expected_graduation_year: formattedProfile.expectedGraduationYear,
             career_goal: formattedProfile.careerGoal,
             target_role: formattedProfile.targetRole,
+            current_skills: formattedProfile.currentSkills,
+            skills: formattedProfile.skills,
             bio: formattedProfile.bio,
             github_url: formattedProfile.githubUrl,
             linkedin_url: formattedProfile.linkedinUrl,
             phone: formattedProfile.phone,
             location: formattedProfile.location,
             plan: formattedProfile.plan,
+            billing_cycle: formattedProfile.billingCycle,
+            subscription_status: formattedProfile.subscriptionStatus,
             is_onboarded: formattedProfile.isOnboarded,
           },
         });
-      } catch (err) {
-        console.warn('Notice updating user metadata in Supabase Auth:', err);
+        if (error) {
+          console.error('[Supabase Service] upsertUserProfile updateUser error:', {
+            message: error.message,
+            status: error.status,
+          });
+          return { data: formattedProfile, error: new Error(error.message) };
+        }
+      } catch (err: any) {
+        console.error('[Supabase Service] Error updating user metadata in Supabase Auth:', err);
+        return { data: formattedProfile, error: new Error(err.message || 'Failed to update user profile in Supabase') };
       }
     }
 
     return { data: formattedProfile, error: null };
+  },
+
+  // ==========================================
+  // SUBSCRIPTION & UPI PAYMENT PERSISTENCE
+  // ==========================================
+  async saveSubscription(
+    userId: string,
+    subscription: SubscriptionRecord
+  ): Promise<{ data: SubscriptionRecord | null; error: Error | null }> {
+    if (!userId) return { data: null, error: new Error('User ID is required') };
+
+    console.log('[Supabase Subscription] Persisting subscription record for user:', userId, subscription);
+
+    // Save to user-scoped local cache
+    localStorage.setItem(getStorageKey(userId, 'subscription'), JSON.stringify(subscription));
+
+    // Update user profile in local cache
+    const cachedProfile = localStorage.getItem(getStorageKey(userId, 'profile'));
+    let updatedProfile: UserProfile | null = null;
+    if (cachedProfile) {
+      try {
+        const parsed = JSON.parse(cachedProfile);
+        updatedProfile = {
+          ...parsed,
+          plan: subscription.selectedPlan,
+          billingCycle: subscription.billingCycle,
+          subscriptionStatus: subscription.subscriptionStatus,
+          subscriptionDetails: subscription,
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(updatedProfile));
+      } catch {}
+    }
+
+    // Persist to Supabase
+    if (isSupabaseConfigured) {
+      try {
+        // 1. Update Auth user metadata
+        const { error: metaErr } = await supabase.auth.updateUser({
+          data: {
+            plan: subscription.selectedPlan,
+            billing_cycle: subscription.billingCycle,
+            subscription_status: subscription.subscriptionStatus,
+            subscription_data: subscription,
+          },
+        });
+
+        if (metaErr) {
+          console.error('[Supabase Subscription] Error updating user metadata:', metaErr);
+          return { data: null, error: new Error(metaErr.message) };
+        }
+
+        // 2. Attempt upsert into subscriptions table (if schema exists)
+        try {
+          const { error: tableErr } = await supabase.from('subscriptions').upsert(
+            {
+              user_id: userId,
+              email: subscription.email,
+              selected_plan: subscription.selectedPlan,
+              billing_cycle: subscription.billingCycle,
+              amount: subscription.amount,
+              currency: subscription.currency,
+              payment_method: subscription.paymentMethod,
+              upi_id: subscription.upiId,
+              transaction_ref: subscription.transactionRef || null,
+              payment_status: subscription.paymentStatus,
+              subscription_status: subscription.subscriptionStatus,
+              started_at: subscription.startedAt,
+              expires_at: subscription.expiresAt,
+              created_at: subscription.createdAt,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id' }
+          );
+
+          if (tableErr) {
+            console.warn('[Supabase Subscription] Subscriptions table notice (auth metadata remains primary):', tableErr.message);
+          }
+        } catch (tableEx) {
+          console.warn('[Supabase Subscription] Optional database table insert skipped:', tableEx);
+        }
+
+        console.log('[Supabase Subscription] Subscription successfully persisted to Supabase Auth metadata.');
+        return { data: subscription, error: null };
+      } catch (err: any) {
+        console.error('[Supabase Subscription] Exception during subscription persistence:', err);
+        return { data: null, error: new Error(err.message || 'Failed to persist subscription') };
+      }
+    }
+
+    return { data: subscription, error: null };
+  },
+
+  async fetchSubscription(userId: string): Promise<{ data: SubscriptionRecord | null; error: Error | null }> {
+    if (!userId) return { data: null, error: new Error('User ID is required') };
+
+    // Check local cache
+    const cached = localStorage.getItem(getStorageKey(userId, 'subscription'));
+    if (cached) {
+      try {
+        return { data: JSON.parse(cached), error: null };
+      } catch {}
+    }
+
+    // Check Supabase
+    if (isSupabaseConfigured) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.user_metadata?.subscription_data) {
+          const sub = user.user_metadata.subscription_data;
+          localStorage.setItem(getStorageKey(userId, 'subscription'), JSON.stringify(sub));
+          return { data: sub, error: null };
+        }
+
+        // Try querying subscriptions table
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (data && !error) {
+          const subRecord: SubscriptionRecord = {
+            id: data.id,
+            userId: data.user_id,
+            email: data.email,
+            selectedPlan: data.selected_plan,
+            billingCycle: data.billing_cycle,
+            amount: data.amount,
+            currency: data.currency,
+            paymentMethod: data.payment_method,
+            upiId: data.upi_id,
+            transactionRef: data.transaction_ref,
+            paymentStatus: data.payment_status,
+            subscriptionStatus: data.subscription_status,
+            startedAt: data.started_at,
+            expiresAt: data.expires_at,
+            createdAt: data.created_at,
+          };
+          localStorage.setItem(getStorageKey(userId, 'subscription'), JSON.stringify(subRecord));
+          return { data: subRecord, error: null };
+        }
+      } catch (err) {
+        console.warn('[Supabase Subscription] Fetch error:', err);
+      }
+    }
+
+    return { data: null, error: null };
   },
 
   // ==========================================
@@ -492,8 +701,25 @@ export const studentTwinService = {
       return { success: false, message: 'Missing user session ID', error: new Error('User is not authenticated') };
     }
 
+    // Ensure plan is not accidentally reverted from existing cache/subscription
+    let effectivePlan = profile.plan || 'free';
+    const cachedProfileStr = localStorage.getItem(getStorageKey(userId, 'profile'));
+    if (cachedProfileStr) {
+      try {
+        const cached = JSON.parse(cachedProfileStr);
+        if (cached.plan && cached.plan !== 'free' && (!profile.plan || profile.plan === 'free')) {
+          effectivePlan = cached.plan;
+        }
+      } catch {}
+    }
+
+    const mergedProfile: UserProfile = {
+      ...profile,
+      plan: effectivePlan,
+    };
+
     // Persist all records into user-scoped cloudStore / local cache
-    localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
+    localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(mergedProfile));
     localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(students));
     localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(skills));
     localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(projects));
@@ -503,27 +729,43 @@ export const studentTwinService = {
     // Update Supabase Auth user metadata if Supabase is active
     if (isSupabaseConfigured) {
       try {
-        await supabase.auth.updateUser({
+        const { error } = await supabase.auth.updateUser({
           data: {
-            full_name: profile.fullName || '',
-            university: profile.university || '',
-            degree: profile.degree || '',
-            branch: profile.branch || '',
-            program: profile.program || '',
-            year: profile.year || '',
-            career_goal: profile.careerGoal || '',
-            target_role: profile.targetRole || '',
-            bio: profile.bio || '',
-            github_url: profile.githubUrl || '',
-            linkedin_url: profile.linkedinUrl || '',
-            phone: profile.phone || '',
-            location: profile.location || '',
-            plan: profile.plan || 'free',
-            is_onboarded: profile.isOnboarded ?? true,
+            full_name: mergedProfile.fullName || '',
+            university: mergedProfile.university || '',
+            degree: mergedProfile.degree || '',
+            branch: mergedProfile.branch || '',
+            program: mergedProfile.program || '',
+            year: mergedProfile.year || '',
+            career_goal: mergedProfile.careerGoal || '',
+            target_role: mergedProfile.targetRole || '',
+            bio: mergedProfile.bio || '',
+            github_url: mergedProfile.githubUrl || '',
+            linkedin_url: mergedProfile.linkedinUrl || '',
+            phone: mergedProfile.phone || '',
+            location: mergedProfile.location || '',
+            plan: mergedProfile.plan,
+            is_onboarded: mergedProfile.isOnboarded ?? true,
           },
         });
-      } catch (err) {
-        console.warn('Notice syncing metadata during cloud upload:', err);
+        if (error) {
+          console.error('[Supabase Service] uploadDataToCloud updateUser error:', {
+            message: error.message,
+            status: error.status,
+          });
+          return {
+            success: false,
+            message: error.message,
+            error: new Error(error.message),
+          };
+        }
+      } catch (err: any) {
+        console.error('[Supabase Service] Notice syncing metadata during cloud upload:', err);
+        return {
+          success: false,
+          message: err.message || 'Failed to sync to Supabase',
+          error: new Error(err.message || 'Sync failed'),
+        };
       }
     }
 

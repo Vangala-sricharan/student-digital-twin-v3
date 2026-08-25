@@ -1,24 +1,30 @@
-import React, { useState } from 'react';
-import { Mail, Lock, User, UserPlus, ArrowLeft, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Mail, Lock, User, UserPlus, ArrowLeft, AlertCircle, CheckCircle2, ShieldCheck, Sparkles, LogIn } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useDemo } from '../../contexts/DemoContext';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 
 interface SignupFormProps {
-  onSwitchToLogin: () => void;
+  initialEmail?: string;
+  initialFullName?: string;
+  onSwitchToLogin: (email?: string) => void;
   onBackToHome: () => void;
   onSuccess?: () => void;
 }
 
 export const SignupForm: React.FC<SignupFormProps> = ({
+  initialEmail = '',
+  initialFullName = '',
   onSwitchToLogin,
   onBackToHome,
   onSuccess,
 }) => {
   const { signUpWithEmail, signInWithGoogle, isConfigured } = useAuth();
+  const { enterDemo } = useDemo();
 
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState(initialFullName);
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<{
@@ -27,16 +33,30 @@ export const SignupForm: React.FC<SignupFormProps> = ({
     password?: string;
     confirmPassword?: string;
     general?: string;
+    isExistingUser?: boolean;
+    isNetworkFailure?: boolean;
   }>({});
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [emailConfirmationRequired, setEmailConfirmationRequired] = useState(false);
 
+  useEffect(() => {
+    if (initialEmail) {
+      setEmail(initialEmail);
+    }
+  }, [initialEmail]);
+
+  useEffect(() => {
+    if (initialFullName) {
+      setFullName(initialFullName);
+    }
+  }, [initialFullName]);
+
   const validate = () => {
     const newErrors: typeof errors = {};
 
     if (!fullName.trim()) {
-      newErrors.fullName = 'Full Name is required';
+      newErrors.fullName = 'Full name is required';
     } else if (fullName.trim().length < 2) {
       newErrors.fullName = 'Name must be at least 2 characters';
     }
@@ -72,7 +92,19 @@ export const SignupForm: React.FC<SignupFormProps> = ({
 
     setIsLoading(false);
     if (result.error) {
-      setErrors({ general: result.error.message });
+      const errMsg = result.error.message.toLowerCase();
+      const isAlreadyExists = errMsg.includes('already') || 
+                              errMsg.includes('exists') ||
+                              errMsg.includes('registered');
+      const isNetErr = errMsg.includes('unable to reach') ||
+                       errMsg.includes('network') ||
+                       errMsg.includes('connection') ||
+                       errMsg.includes('fetch');
+      setErrors({ 
+        general: result.error.message,
+        isExistingUser: isAlreadyExists,
+        isNetworkFailure: isNetErr,
+      });
     } else if (result.needsEmailConfirmation) {
       // Supabase project requires email confirmation
       setEmailConfirmationRequired(true);
@@ -88,21 +120,40 @@ export const SignupForm: React.FC<SignupFormProps> = ({
     const result = await signInWithGoogle();
     if (result.error) {
       setIsGoogleLoading(false);
-      setErrors({ general: result.error.message });
+      const errMsg = result.error.message.toLowerCase();
+      const isNetErr = errMsg.includes('unable to reach') ||
+                       errMsg.includes('network') ||
+                       errMsg.includes('connection') ||
+                       errMsg.includes('fetch');
+      setErrors({ 
+        general: result.error.message,
+        isNetworkFailure: isNetErr,
+      });
     }
   };
 
   return (
     <Card className="w-full max-w-md p-8 relative border-slate-800 dark:border-slate-800 light:border-sky-200" glow>
-      {/* Back button */}
-      <button
-        id="signup-back-home-btn"
-        type="button"
-        onClick={onBackToHome}
-        className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 dark:hover:text-slate-200 light:hover:text-slate-800 mb-6 transition-colors cursor-pointer"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" /> Back to Home
-      </button>
+      {/* Back & Demo button */}
+      <div className="flex items-center justify-between mb-6">
+        <button
+          id="signup-back-home-btn"
+          type="button"
+          onClick={onBackToHome}
+          className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 dark:hover:text-slate-200 light:hover:text-slate-800 transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Home
+        </button>
+
+        <button
+          id="signup-quick-demo-btn"
+          type="button"
+          onClick={enterDemo}
+          className="inline-flex items-center gap-1 text-xs text-amber-400 hover:text-amber-300 font-semibold transition-colors cursor-pointer"
+        >
+          <Sparkles className="w-3.5 h-3.5" /> Explore in Demo Mode
+        </button>
+      </div>
 
       <div className="text-center mb-6">
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto mb-3 shadow-lg shadow-blue-500/20">
@@ -144,7 +195,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({
               id="signup-return-login-btn"
               variant="outline"
               size="sm"
-              onClick={onSwitchToLogin}
+              onClick={() => onSwitchToLogin(email.trim())}
               className="w-full"
             >
               Return to Log In
@@ -154,9 +205,41 @@ export const SignupForm: React.FC<SignupFormProps> = ({
       ) : (
         <>
           {errors.general && (
-            <div className="mb-5 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{errors.general}</span>
+            <div className="mb-5 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 dark:text-rose-300 light:text-rose-900 text-xs space-y-2.5">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                <span className="font-medium">{errors.general}</span>
+              </div>
+
+              {(errors.isExistingUser || errors.isNetworkFailure) && (
+                <div className="pt-2 border-t border-rose-500/20 flex flex-wrap items-center gap-2">
+                  {errors.isExistingUser && (
+                    <button
+                      type="button"
+                      onClick={() => onSwitchToLogin(email.trim())}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <LogIn className="w-3 h-3" /> Sign In Now
+                    </button>
+                  )}
+                  {errors.isNetworkFailure && (
+                    <button
+                      type="button"
+                      onClick={handleEmailSignup}
+                      className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      Retry Sign Up
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={enterDemo}
+                    className="px-2 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[11px] font-medium transition-colors cursor-pointer"
+                  >
+                    Try Demo Mode
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -336,7 +419,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({
         <button
           id="signup-switch-login-btn"
           type="button"
-          onClick={onSwitchToLogin}
+          onClick={() => onSwitchToLogin(email.trim())}
           className="text-blue-400 hover:text-blue-300 font-semibold cursor-pointer"
         >
           Sign In

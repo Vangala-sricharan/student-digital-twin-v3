@@ -13,6 +13,8 @@ import {
   ArrowRight,
   RefreshCw,
   Users,
+  Clock,
+  QrCode,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { Card } from '../common/Card';
@@ -21,6 +23,7 @@ import { Badge } from '../common/Badge';
 import { formatINR } from '../../utils/formatters';
 import { PRICING_PLANS } from '../../constants/pricing';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
+import { UpiPaymentModal } from './UpiPaymentModal';
 
 interface SubscriptionViewProps {
   userProfile: UserProfile | null;
@@ -31,10 +34,10 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
   userProfile,
   isDemo = false,
 }) => {
-  const { updateUserProfile } = useStudentTwin();
+  const { updateUserProfile, upgradeSubscription } = useStudentTwin();
 
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
-  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [isUpiModalOpen, setIsUpiModalOpen] = useState(false);
   const [isCampusModalOpen, setIsCampusModalOpen] = useState(false);
   const [isActivatingPlan, setIsActivatingPlan] = useState(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
@@ -57,18 +60,50 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
   const proPlan = PRICING_PLANS.pro;
   const institutionalPlan = PRICING_PLANS.institutional;
 
-  const isPro = userProfile?.plan === 'pro';
+  const isPro =
+    userProfile?.plan === 'pro' ||
+    userProfile?.plan === 'pro_monthly' ||
+    userProfile?.plan === 'pro_annual' ||
+    userProfile?.plan === 'annual';
 
-  const handleActivatePro = async () => {
+  const isPendingVerification = userProfile?.subscriptionStatus === 'pending_verification';
+
+  const isMonthlyPro =
+    userProfile?.plan === 'pro_monthly' ||
+    (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly') ||
+    userProfile?.billingCycle === 'monthly';
+
+  const currentPlanLabel = () => {
+    if (isPendingVerification) {
+      const amount = isMonthlyPro ? 499 : 1499;
+      return `Student Pro (${formatINR(amount)}) — Verification Pending`;
+    }
+    if (isMonthlyPro) {
+      return `Student Pro Monthly — ACTIVE (${formatINR(499)}/mo)`;
+    }
+    if (isPro) {
+      return `Student Pro Annual — ACTIVE (${formatINR(1499)}/yr)`;
+    }
+    return `Free Plan (${formatINR(0)})`;
+  };
+
+  const handleConfirmUpiPayment = async (transactionRef?: string) => {
     setIsActivatingPlan(true);
     try {
-      if (updateUserProfile && !isDemo) {
-        await updateUserProfile({ plan: 'pro' });
+      const targetPlan = billingCycle === 'monthly' ? 'pro_monthly' : 'pro_annual';
+      const res = await upgradeSubscription(targetPlan, billingCycle, transactionRef);
+      if (res.error) {
+        throw res.error;
       }
-      setActionSuccessMessage('Student Pro plan activated in Simulated Test Mode (No real charges incurred). All advanced AI engines unlocked.');
-      setIsUpgradeModalOpen(false);
+      const planName = billingCycle === 'monthly' ? 'Student Pro Monthly — ACTIVE' : 'Student Pro Annual — ACTIVE';
+      const amount = billingCycle === 'monthly' ? 499 : 1499;
+      setActionSuccessMessage(
+        `Payment Successful! ${planName} (${formatINR(amount)} paid via UPI to 8520981574@ybl). Your Pro Digital Twin features are now fully active.`
+      );
+      setIsUpiModalOpen(false);
     } catch (err: any) {
-      console.error(err);
+      console.error('UPI upgrade error:', err);
+      throw err;
     } finally {
       setIsActivatingPlan(false);
     }
@@ -78,7 +113,11 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
     setIsActivatingPlan(true);
     try {
       if (updateUserProfile && !isDemo) {
-        await updateUserProfile({ plan: 'free' });
+        await updateUserProfile({
+          plan: 'free',
+          billingCycle: undefined,
+          subscriptionStatus: 'active',
+        });
       }
       setActionSuccessMessage('Your plan has been switched to the Free Plan (₹0).');
     } catch (err: any) {
@@ -145,16 +184,19 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
             Subscription & Billing
           </h1>
           <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-1">
-            Indian Rupee (₹) pricing with transparent student and institutional tiers.
+            Indian Rupee (₹) pricing with transparent UPI payments for student and institutional tiers.
           </p>
         </div>
 
-        <Badge variant={isPro ? 'blue' : 'slate'} size="md">
-          {isPro ? `PRO PLAN (${formatINR(proPlan.annualPrice)}/yr)` : `FREE PLAN (${formatINR(0)})`}
+        <Badge
+          variant={isPendingVerification ? 'amber' : isPro ? 'blue' : 'slate'}
+          size="md"
+        >
+          {currentPlanLabel()}
         </Badge>
       </div>
 
-      {/* Success / Info Notifications */}
+      {/* Notifications / Alerts */}
       {actionSuccessMessage && (
         <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 dark:text-emerald-300 light:text-emerald-900 text-xs flex items-start justify-between gap-3">
           <div className="flex items-start gap-2.5">
@@ -171,29 +213,83 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
         </div>
       )}
 
+      {/* Pending Verification Notice Banner */}
+      {isPendingVerification && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-200">
+                Payment Submitted — Verification Pending
+              </p>
+              <p className="text-[11px] text-amber-300/80 mt-0.5">
+                Your UPI transaction (paid to <strong>8520981574@ybl</strong>) is recorded and awaiting verification. You can continue utilizing your Student Twin features.
+              </p>
+              {userProfile?.subscriptionDetails?.transactionRef && (
+                <p className="text-[10px] font-mono text-amber-400 mt-1">
+                  Reference / UTR: {userProfile.subscriptionDetails.transactionRef}
+                </p>
+              )}
+            </div>
+          </div>
+          <Button
+            id="sub-pending-support-btn"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsUpiModalOpen(true)}
+            className="text-xs shrink-0"
+          >
+            View UPI Details
+          </Button>
+        </div>
+      )}
+
       {/* Current Active Plan Status Card */}
       <Card className="p-6 border-slate-800 dark:border-slate-800 light:border-sky-200" glow>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${
-              isPro
-                ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
-                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-            }`}>
-              {isPro ? <Sparkles className="w-6 h-6" /> : <CreditCard className="w-6 h-6" />}
+            <div
+              className={`w-12 h-12 rounded-xl flex items-center justify-center border ${
+                isPendingVerification
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : isPro
+                  ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              }`}
+            >
+              {isPendingVerification ? (
+                <Clock className="w-6 h-6" />
+              ) : isPro ? (
+                <Sparkles className="w-6 h-6" />
+              ) : (
+                <CreditCard className="w-6 h-6" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
-                  {isDemo ? 'Creator Demo Plan' : isPro ? 'Student Pro Plan (Active)' : 'Free Plan (Active)'}
+                  {isPendingVerification
+                    ? 'Student Pro (Pending Verification)'
+                    : isMonthlyPro
+                    ? 'Student Pro Monthly — ACTIVE'
+                    : isPro
+                    ? 'Student Pro Annual — ACTIVE'
+                    : 'Free Plan (Active)'}
                 </h3>
-                <Badge variant={isPro ? 'blue' : 'emerald'} size="sm">
-                  {isPro ? 'Pro Twin Active' : 'Default Free Plan'}
+                <Badge
+                  variant={isPendingVerification ? 'amber' : isPro ? 'blue' : 'emerald'}
+                  size="sm"
+                >
+                  {isPendingVerification
+                    ? 'Verification Pending'
+                    : isPro
+                    ? 'Pro Twin Active'
+                    : 'Default Free Plan'}
                 </Badge>
               </div>
               <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-0.5">
-                {isPro
-                  ? `Full AI Career OS intelligence, benchmark simulation, and syllabus analyzer active.`
+                {isPro || isPendingVerification
+                  ? `Full AI Career OS intelligence, benchmark simulation, and syllabus analyzer enabled.`
                   : `Default free tier with full digital twin records and baseline readiness scoring.`}
               </p>
             </div>
@@ -202,14 +298,22 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
           <div className="flex flex-col items-start sm:items-end gap-2">
             <div className="text-left sm:text-right">
               <span className="text-2xl font-extrabold text-slate-100 dark:text-slate-100 light:text-slate-900 font-mono">
-                {isPro ? formatINR(proPlan.annualPrice) : formatINR(0)}
+                {userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
+                  ? formatINR(499)
+                  : isPro || isPendingVerification
+                  ? formatINR(1499)
+                  : formatINR(0)}
               </span>
               <span className="text-xs text-slate-400 block">
-                {isPro ? '/ year' : '/ forever'}
+                {userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
+                  ? '/ month'
+                  : isPro || isPendingVerification
+                  ? '/ year'
+                  : '/ forever'}
               </span>
             </div>
 
-            {isPro && !isDemo && (
+            {(isPro || isPendingVerification) && !isDemo && (
               <Button
                 id="sub-downgrade-btn"
                 variant="outline"
@@ -266,22 +370,26 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* FREE PLAN */}
-          <Card className={`p-6 flex flex-col justify-between ${
-            !isPro ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-800'
-          }`}>
+          <Card
+            className={`p-6 flex flex-col justify-between ${
+              !isPro && !isPendingVerification
+                ? 'border-emerald-500/40 bg-emerald-500/5'
+                : 'border-slate-800'
+            }`}
+          >
             <div>
               <div className="flex justify-between items-center mb-3">
                 <h4 className="text-base font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
                   {freePlan.name}
                 </h4>
                 <Badge variant={freePlan.badgeVariant} size="sm">
-                  {!isPro ? 'Active Plan' : freePlan.badge}
+                  {!isPro && !isPendingVerification ? 'Active Plan' : freePlan.badge}
                 </Badge>
               </div>
 
               <div className="mb-4">
                 <span className="text-3xl font-extrabold text-slate-100 dark:text-slate-100 light:text-slate-900 font-mono">
-                  {formatINR(freePlan.monthlyPrice)}
+                  {formatINR(0)}
                 </span>
                 <span className="text-xs text-slate-400"> / forever</span>
                 <span className="text-xs text-slate-500 block mt-0.5">
@@ -303,18 +411,18 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
               id="sub-free-plan-btn"
               variant="outline"
               size="sm"
-              disabled={!isPro}
+              disabled={!isPro && !isPendingVerification}
               onClick={handleDowngradeToFree}
               className="w-full"
             >
-              {!isPro ? 'Current Plan' : 'Downgrade to Free'}
+              {!isPro && !isPendingVerification ? 'Current Plan' : 'Downgrade to Free'}
             </Button>
           </Card>
 
           {/* STUDENT PRO */}
           <Card
             className={`p-6 flex flex-col justify-between relative ${
-              isPro
+              isPro || isPendingVerification
                 ? 'border-blue-500 shadow-lg shadow-blue-500/20 bg-blue-500/5'
                 : 'border-blue-500/50 shadow-md shadow-blue-500/10'
             }`}
@@ -327,19 +435,23 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
                 </h4>
                 <Badge variant="blue" size="sm">
                   <Sparkles className="w-3 h-3 mr-1" />
-                  {isPro ? 'Active Plan' : proPlan.badge}
+                  {isPendingVerification
+                    ? 'Pending Verification'
+                    : isPro
+                    ? 'Active Plan'
+                    : proPlan.badge}
                 </Badge>
               </div>
 
               <div className="mb-4">
                 <span className="text-3xl font-extrabold text-slate-100 dark:text-slate-100 light:text-slate-900 font-mono">
-                  {billingCycle === 'annual' ? formatINR(proPlan.annualPrice) : formatINR(proPlan.monthlyPrice)}
+                  {billingCycle === 'annual' ? formatINR(1499) : formatINR(499)}
                 </span>
                 <span className="text-xs text-slate-400">
                   {billingCycle === 'annual' ? ' / year' : ' / month'}
                 </span>
                 <span className="text-xs text-emerald-400 block mt-0.5 font-medium">
-                  {billingCycle === 'annual' ? proPlan.annualDiscountText : 'Billed monthly'}
+                  {billingCycle === 'annual' ? 'Save ₹4,489 (75% discount vs monthly)' : 'Billed ₹499 monthly'}
                 </span>
               </div>
 
@@ -347,7 +459,13 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
                 {proPlan.features.map((f, idx) => (
                   <li key={idx} className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <span className={f.isProOnly ? 'font-semibold text-slate-100 dark:text-slate-100 light:text-slate-900' : ''}>
+                    <span
+                      className={
+                        f.isProOnly
+                          ? 'font-semibold text-slate-100 dark:text-slate-100 light:text-slate-900'
+                          : ''
+                      }
+                    >
                       {f.text}
                     </span>
                   </li>
@@ -359,16 +477,15 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
               id="sub-pro-plan-btn"
               variant={isPro ? 'outline' : 'gradient'}
               size="sm"
-              onClick={() => {
-                if (isPro) {
-                  setActionSuccessMessage('Student Pro is already active on your digital twin account.');
-                } else {
-                  setIsUpgradeModalOpen(true);
-                }
-              }}
+              onClick={() => setIsUpiModalOpen(true)}
+              leftIcon={<QrCode className="w-4 h-4" />}
               className="w-full"
             >
-              {isPro ? 'Active Pro Tier' : proPlan.ctaLabel}
+              {isPendingVerification
+                ? 'View / Update UPI Payment'
+                : isPro
+                ? 'Active Pro Plan (Renew via UPI)'
+                : `Pay ${formatINR(billingCycle === 'annual' ? 1499 : 499)} via UPI`}
             </Button>
           </Card>
 
@@ -386,11 +503,10 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
 
               <div className="mb-4">
                 <span className="text-3xl font-extrabold text-slate-100 dark:text-slate-100 light:text-slate-900 font-mono">
-                  {formatINR(institutionalPlan.annualPrice)}
+                  Contact Us
                 </span>
-                <span className="text-xs text-slate-400"> / cohort / year</span>
-                <span className="text-xs text-slate-500 block mt-0.5">
-                  For university placement cells & cohorts
+                <span className="text-xs text-slate-400 block mt-0.5">
+                  Custom institutional and cohort pricing
                 </span>
               </div>
 
@@ -418,92 +534,16 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL 1: PRO PLAN UPGRADE MODAL (Honest Simulation / Sandbox Mode) */}
-      {isUpgradeModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
-          <div className="w-full max-w-lg bg-[#0a0a0c] dark:bg-[#0a0a0c] light:bg-white border border-slate-800 dark:border-slate-800 light:border-slate-300 rounded-2xl p-6 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between border-b border-white/10 pb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-500/30 text-blue-400 flex items-center justify-center">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
-                    Upgrade to Student Pro
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {billingCycle === 'annual' ? `${formatINR(proPlan.annualPrice)} / year (${proPlan.annualDiscountText})` : `${formatINR(proPlan.monthlyPrice)} / month`}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsUpgradeModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* REAL UPI PAYMENT MODAL */}
+      <UpiPaymentModal
+        isOpen={isUpiModalOpen}
+        onClose={() => setIsUpiModalOpen(false)}
+        billingCycle={billingCycle}
+        onConfirmPayment={handleConfirmUpiPayment}
+        isProcessing={isActivatingPlan}
+      />
 
-            {/* Sandbox Notice */}
-            <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 space-y-2 text-xs text-slate-300 dark:text-slate-300 light:text-slate-700">
-              <div className="flex items-center gap-2 text-blue-400 font-semibold">
-                <ShieldCheck className="w-4 h-4" />
-                <span>Transparent Payment Sandbox Notice</span>
-              </div>
-              <p className="leading-relaxed">
-                Live gateway webhooks (e.g. Razorpay / Stripe) process real bank debits once merchant credentials are connected.
-                In this preview deployment, you can immediately activate the <strong>Student Pro</strong> tier in Simulation Mode to test all advanced AI analysis and career roadmaps without financial charge.
-              </p>
-            </div>
-
-            {/* Plan inclusions summary */}
-            <div className="space-y-2 text-xs">
-              <p className="font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800">
-                Unlocked with Student Pro:
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-400 dark:text-slate-400 light:text-slate-600">
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-blue-400" /> AI Career Intelligence
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-blue-400" /> Syllabus Code Analyzer
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-blue-400" /> Role Benchmark Simulator
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Check className="w-3.5 h-3.5 text-blue-400" /> 30-60-90 Roadmap Engine
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <Button
-                id="sub-cancel-upgrade-btn"
-                variant="outline"
-                size="sm"
-                onClick={() => setIsUpgradeModalOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                id="sub-confirm-upgrade-btn"
-                variant="gradient"
-                size="sm"
-                onClick={handleActivatePro}
-                isLoading={isActivatingPlan}
-                rightIcon={<Zap className="w-4 h-4" />}
-              >
-                Activate Student Pro (Simulated Test Mode)
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: CAMPUS / INSTITUTIONAL CONTACT MODAL */}
+      {/* CAMPUS / INSTITUTIONAL CONTACT MODAL */}
       {isCampusModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in overflow-y-auto">
           <div className="w-full max-w-lg bg-[#0a0a0c] dark:bg-[#0a0a0c] light:bg-white border border-slate-800 dark:border-slate-800 light:border-slate-300 rounded-2xl p-6 shadow-2xl space-y-5 my-8">
@@ -517,7 +557,7 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
                     Campus & Institutional Partnership
                   </h3>
                   <p className="text-xs text-slate-400">
-                    Cohort and department licensing ({formatINR(institutionalPlan.annualPrice)} / cohort / year)
+                    Cohort and department licensing (Custom Institutional Pricing)
                   </p>
                 </div>
               </div>

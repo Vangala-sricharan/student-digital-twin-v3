@@ -24,7 +24,26 @@ export type NavTab =
   | 'subscription'
   | 'settings';
 
-export type PlanType = 'free' | 'pro' | 'annual';
+export type PlanType = 'free' | 'pro' | 'annual' | 'pro_monthly' | 'pro_annual';
+
+export interface SubscriptionRecord {
+  id?: string;
+  userId: string;
+  email: string;
+  selectedPlan: 'pro_monthly' | 'pro_annual' | 'free';
+  billingCycle: 'monthly' | 'annual';
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+  upiId: string;
+  transactionRef?: string;
+  paymentStatus: 'pending' | 'verified' | 'rejected' | 'paid';
+  subscriptionStatus: 'pending_verification' | 'active' | 'expired' | 'free';
+  startedAt: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt?: string;
+}
 
 export interface UserProfile {
   id: string;
@@ -32,13 +51,19 @@ export interface UserProfile {
   fullName: string;
   avatarUrl?: string;
   plan: PlanType;
+  billingCycle?: 'monthly' | 'annual';
+  subscriptionStatus?: 'pending_verification' | 'active' | 'expired' | 'free';
+  subscriptionDetails?: SubscriptionRecord;
   university?: string;
   degree?: string;
   branch?: string;
   program?: string;
   year?: string;
+  expectedGraduationYear?: string;
   careerGoal?: string;
   targetRole?: string;
+  currentSkills?: string;
+  skills?: string[];
   bio?: string;
   githubUrl?: string;
   linkedinUrl?: string;
@@ -59,8 +84,10 @@ export interface StudentProfile {
   degree: string;
   branch: string;
   year: string;
+  expectedGraduationYear?: string;
   careerGoal: string;
   targetRole: string;
+  currentSkills?: string;
   bio?: string;
   githubUrl?: string;
   linkedinUrl?: string;
@@ -146,12 +173,15 @@ export interface CareerGoalItem {
 
 export interface OnboardingFormData {
   fullName: string;
+  email?: string;
   university: string;
   degree: string;
   branch: string;
   year: string;
+  expectedGraduationYear: string;
   careerGoal: string;
   targetRole?: string;
+  currentSkills?: string;
   bio?: string;
   githubUrl?: string;
   linkedinUrl?: string;
