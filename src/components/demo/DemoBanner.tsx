@@ -9,7 +9,7 @@ interface DemoBannerProps {
 }
 
 export const DemoBanner: React.FC<DemoBannerProps> = ({ onCreateAccount }) => {
-  const { exitDemo } = useDemo();
+  const { demoProfile, exitDemo } = useDemo();
 
   return (
     <div className="bg-gradient-to-r from-amber-950/80 via-blue-950/80 to-amber-950/80 border-b border-amber-500/30 text-amber-200 px-4 py-2.5 backdrop-blur-md sticky top-0 z-50 shadow-md">
@@ -19,7 +19,7 @@ export const DemoBanner: React.FC<DemoBannerProps> = ({ onCreateAccount }) => {
             DEMO MODE — CREATOR SHOWCASE
           </Badge>
           <span className="font-medium text-slate-200">
-            Previewing Creator Twin: <strong className="text-amber-300">Vangala Sricharan — Demo</strong> (Marwadi University)
+            Previewing Creator Twin: <strong className="text-amber-300">{demoProfile.fullName || 'Sricharan Vangala'} — Demo</strong> ({demoProfile.university || 'Marwadi University'})
           </span>
         </div>
 

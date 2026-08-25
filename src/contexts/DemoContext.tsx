@@ -1,18 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile } from '../types';
+import { DEMO_USER_PROFILE } from '../constants/demoData';
 
-export const DEMO_PROFILE: UserProfile = {
-  id: 'demo-creator-showcase',
-  email: 'vangalasricharan7@gmail.com',
-  fullName: 'Vangala Sricharan',
-  plan: 'pro',
-  university: 'Marwadi University',
-  program: 'B.Tech Computer Science & Engineering (AI/ML)',
-  year: '2nd Year',
-  careerGoal: 'AI/ML Engineer',
-  createdAt: new Date().toISOString(),
-  isDemo: true,
-};
+export const DEMO_PROFILE: UserProfile = DEMO_USER_PROFILE;
 
 interface DemoContextType {
   isDemoMode: boolean;

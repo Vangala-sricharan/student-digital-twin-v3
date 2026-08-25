@@ -3,6 +3,14 @@ import { useAuth } from './AuthContext';
 import { useDemo } from './DemoContext';
 import { studentTwinService } from '../services/studentTwinService';
 import {
+  DEMO_USER_PROFILE,
+  DEMO_STUDENT_PROFILES,
+  DEMO_SKILLS,
+  DEMO_PROJECTS,
+  DEMO_ACHIEVEMENTS,
+  DEMO_CAREER_GOALS,
+} from '../constants/demoData';
+import {
   UserProfile,
   StudentProfile,
   SkillItem,
@@ -163,10 +171,21 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   }, [user]);
 
-  // Handle Authentication Changes & Strict Isolation (Clear stale state when user changes)
+  // Handle Authentication Changes & Strict Isolation (Clear stale state when user changes or load demo data)
   useEffect(() => {
     if (isAuthenticated && userId) {
       loadUserData(userId);
+    } else if (isDemoMode) {
+      // Initialize isolated demo data for Sricharan Vangala showcase
+      setUserProfile(demoProfile || DEMO_USER_PROFILE);
+      setStudentProfiles(DEMO_STUDENT_PROFILES);
+      setActiveStudentProfileId(DEMO_STUDENT_PROFILES[0].id);
+      setAllSkills(DEMO_SKILLS);
+      setAllProjects(DEMO_PROJECTS);
+      setAllAchievements(DEMO_ACHIEVEMENTS);
+      setAllCareerGoals(DEMO_CAREER_GOALS);
+      setShowOnboarding(false);
+      setIsLoading(false);
     } else {
       // Clear all state on logout
       setUserProfile(null);
@@ -179,7 +198,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setShowOnboarding(false);
       setIsLoading(false);
     }
-  }, [isAuthenticated, userId, loadUserData]);
+  }, [isAuthenticated, userId, isDemoMode, demoProfile, loadUserData]);
 
   // Filter items by active student profile (or show all user items if no active student profile)
   const activeStudentProfile = studentProfiles.find((s) => s.id === activeStudentProfileId) || (studentProfiles.length > 0 ? studentProfiles[0] : null);
@@ -204,9 +223,10 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Switch Active Student Profile (Clears stale data safely and saves active ID)
   const setActiveStudent = (studentProfileId: string) => {
-    if (!userId) return;
     setActiveStudentProfileId(studentProfileId);
-    localStorage.setItem(`sdt_user_${userId}_active_student_id`, studentProfileId);
+    if (userId) {
+      localStorage.setItem(`sdt_user_${userId}_active_student_id`, studentProfileId);
+    }
   };
 
   // Complete First-Time Onboarding
@@ -331,6 +351,17 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Update User Profile
   const updateUserProfile = async (data: Partial<UserProfile>): Promise<{ success: boolean; error: Error | null }> => {
+    if (isDemoMode) {
+      const merged: UserProfile = {
+        ...(userProfile || demoProfile || DEMO_USER_PROFILE),
+        ...data,
+        updatedAt: new Date().toISOString(),
+      };
+      updateDemoProfile(merged);
+      setUserProfile(merged);
+      return { success: true, error: null };
+    }
+
     if (!userId || !userProfile) return { success: false, error: new Error('User not found') };
 
     try {
@@ -355,6 +386,21 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Student Profiles CRUD
   const createStudentProfile = async (data: Omit<StudentProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (isDemoMode) {
+      const newProfile: StudentProfile = {
+        ...data,
+        id: `demo-student-${Date.now()}`,
+        userId: 'demo-creator-showcase',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setStudentProfiles((prev) => [newProfile, ...prev]);
+      if (data.isActive || studentProfiles.length === 0) {
+        setActiveStudentProfileId(newProfile.id);
+      }
+      return { data: newProfile, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.createStudentProfile(userId, data);
     if (res.data) {
@@ -368,6 +414,20 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateStudentProfile = async (id: string, data: Partial<StudentProfile>) => {
+    if (isDemoMode) {
+      let updated: StudentProfile | null = null;
+      setStudentProfiles((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            updated = { ...item, ...data, updatedAt: new Date().toISOString() };
+            return updated;
+          }
+          return item;
+        })
+      );
+      return { data: updated, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.updateStudentProfile(userId, id, data);
     if (res.data) {
@@ -377,6 +437,18 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const deleteStudentProfile = async (id: string) => {
+    if (isDemoMode) {
+      setStudentProfiles((prev) => {
+        const filtered = prev.filter((item) => item.id !== id);
+        if (activeStudentProfileId === id) {
+          const nextActive = filtered[0]?.id || null;
+          setActiveStudentProfileId(nextActive);
+        }
+        return filtered;
+      });
+      return { success: true, error: null };
+    }
+
     if (!userId) return { success: false, error: new Error('User not authenticated') };
     const res = await studentTwinService.deleteStudentProfile(userId, id);
     if (res.success) {
@@ -399,6 +471,19 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Skills CRUD
   const addSkill = async (data: Omit<SkillItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (isDemoMode) {
+      const newSkill: SkillItem = {
+        ...data,
+        id: `demo-skill-${Date.now()}`,
+        userId: 'demo-creator-showcase',
+        studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setAllSkills((prev) => [newSkill, ...prev]);
+      return { data: newSkill, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.addSkill(userId, {
       ...data,
@@ -411,6 +496,20 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateSkill = async (id: string, data: Partial<SkillItem>) => {
+    if (isDemoMode) {
+      let updated: SkillItem | null = null;
+      setAllSkills((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            updated = { ...item, ...data, updatedAt: new Date().toISOString() };
+            return updated;
+          }
+          return item;
+        })
+      );
+      return { data: updated, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.updateSkill(userId, id, data);
     if (res.data) {
@@ -420,6 +519,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const deleteSkill = async (id: string) => {
+    if (isDemoMode) {
+      setAllSkills((prev) => prev.filter((item) => item.id !== id));
+      return { success: true, error: null };
+    }
+
     if (!userId) return { success: false, error: new Error('User not authenticated') };
     const res = await studentTwinService.deleteSkill(userId, id);
     if (res.success) {
@@ -430,6 +534,19 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Projects CRUD
   const addProject = async (data: Omit<ProjectItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (isDemoMode) {
+      const newProject: ProjectItem = {
+        ...data,
+        id: `demo-proj-${Date.now()}`,
+        userId: 'demo-creator-showcase',
+        studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setAllProjects((prev) => [newProject, ...prev]);
+      return { data: newProject, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.addProject(userId, {
       ...data,
@@ -442,6 +559,20 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateProject = async (id: string, data: Partial<ProjectItem>) => {
+    if (isDemoMode) {
+      let updated: ProjectItem | null = null;
+      setAllProjects((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            updated = { ...item, ...data, updatedAt: new Date().toISOString() };
+            return updated;
+          }
+          return item;
+        })
+      );
+      return { data: updated, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.updateProject(userId, id, data);
     if (res.data) {
@@ -451,6 +582,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const deleteProject = async (id: string) => {
+    if (isDemoMode) {
+      setAllProjects((prev) => prev.filter((item) => item.id !== id));
+      return { success: true, error: null };
+    }
+
     if (!userId) return { success: false, error: new Error('User not authenticated') };
     const res = await studentTwinService.deleteProject(userId, id);
     if (res.success) {
@@ -461,6 +597,19 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Achievements CRUD
   const addAchievement = async (data: Omit<AchievementItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (isDemoMode) {
+      const newAch: AchievementItem = {
+        ...data,
+        id: `demo-ach-${Date.now()}`,
+        userId: 'demo-creator-showcase',
+        studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setAllAchievements((prev) => [newAch, ...prev]);
+      return { data: newAch, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.addAchievement(userId, {
       ...data,
@@ -473,6 +622,20 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateAchievement = async (id: string, data: Partial<AchievementItem>) => {
+    if (isDemoMode) {
+      let updated: AchievementItem | null = null;
+      setAllAchievements((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            updated = { ...item, ...data, updatedAt: new Date().toISOString() };
+            return updated;
+          }
+          return item;
+        })
+      );
+      return { data: updated, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.updateAchievement(userId, id, data);
     if (res.data) {
@@ -482,6 +645,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const deleteAchievement = async (id: string) => {
+    if (isDemoMode) {
+      setAllAchievements((prev) => prev.filter((item) => item.id !== id));
+      return { success: true, error: null };
+    }
+
     if (!userId) return { success: false, error: new Error('User not authenticated') };
     const res = await studentTwinService.deleteAchievement(userId, id);
     if (res.success) {
@@ -492,6 +660,24 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Career Goals CRUD
   const addCareerGoal = async (data: Omit<CareerGoalItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+    if (isDemoMode) {
+      const newGoal: CareerGoalItem = {
+        ...data,
+        id: `demo-goal-${Date.now()}`,
+        userId: 'demo-creator-showcase',
+        studentProfileId: data.studentProfileId || activeStudentProfileId || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setAllCareerGoals((prev) => {
+        if (data.isActive) {
+          return [newGoal, ...prev.map((g) => ({ ...g, isActive: false }))];
+        }
+        return [newGoal, ...prev];
+      });
+      return { data: newGoal, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.addCareerGoal(userId, {
       ...data,
@@ -509,6 +695,21 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const updateCareerGoal = async (id: string, data: Partial<CareerGoalItem>) => {
+    if (isDemoMode) {
+      let updated: CareerGoalItem | null = null;
+      setAllCareerGoals((prev) =>
+        prev.map((item) => {
+          if (item.id === id) {
+            updated = { ...item, ...data };
+            return updated;
+          }
+          if (data.isActive) return { ...item, isActive: false };
+          return item;
+        })
+      );
+      return { data: updated, error: null };
+    }
+
     if (!userId) return { data: null, error: new Error('User not authenticated') };
     const res = await studentTwinService.updateCareerGoal(userId, id, data);
     if (res.data) {
@@ -524,6 +725,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   };
 
   const deleteCareerGoal = async (id: string) => {
+    if (isDemoMode) {
+      setAllCareerGoals((prev) => prev.filter((item) => item.id !== id));
+      return { success: true, error: null };
+    }
+
     if (!userId) return { success: false, error: new Error('User not authenticated') };
     const res = await studentTwinService.deleteCareerGoal(userId, id);
     if (res.success) {
