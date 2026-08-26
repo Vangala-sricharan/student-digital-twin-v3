@@ -155,13 +155,28 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
           {!isDemo && (
             <Button
               id="profile-cloud-sync-btn"
-              variant="outline"
+              variant={syncStatus === 'success' ? 'secondary' : 'outline'}
               size="sm"
               onClick={handleManualUpload}
+              disabled={isSyncing}
               isLoading={isSyncing}
-              leftIcon={<UploadCloud className="w-3.5 h-3.5 text-blue-400" />}
+              leftIcon={
+                syncStatus === 'success' ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                ) : syncStatus === 'error' ? (
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                ) : (
+                  <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+                )
+              }
             >
-              Upload Data to Cloud
+              {isSyncing
+                ? 'Uploading...'
+                : syncStatus === 'success'
+                ? 'Cloud Sync Successful'
+                : syncStatus === 'error'
+                ? 'Retry Cloud Upload'
+                : 'Upload to Cloud'}
             </Button>
           )}
           <Badge variant={isDemo ? 'amber' : 'blue'} size="md">

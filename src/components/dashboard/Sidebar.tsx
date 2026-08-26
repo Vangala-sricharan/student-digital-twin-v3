@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   LayoutDashboard,
   User,
@@ -21,14 +21,19 @@ import {
   Github,
   Linkedin,
   ShieldAlert,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
-import { NavTab } from '../../types';
+import { NavTab, UserProfile } from '../../types';
+import { formatINR } from '../../utils/formatters';
+import { useStudentTwin } from '../../contexts/StudentTwinContext';
 
 interface SidebarProps {
   activeTab: NavTab;
   onTabChange: (tab: NavTab) => void;
   onLogout: () => void;
   isDemo?: boolean;
+  userProfile?: UserProfile | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -36,7 +41,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onTabChange,
   onLogout,
   isDemo = false,
+  userProfile: propUserProfile,
 }) => {
+  const { userProfile: contextUserProfile } = useStudentTwin();
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  const activeUserProfile = propUserProfile || contextUserProfile;
+
+  const getSubscriptionBadge = (profile: UserProfile | null): string => {
+    if (!profile) return formatINR(0);
+
+    if ((profile.plan as string) === 'campus') {
+      return 'Contact Us';
+    }
+
+    if (
+      profile.plan === 'pro_monthly' ||
+      (profile.plan === 'pro' && profile.billingCycle === 'monthly')
+    ) {
+      return formatINR(499);
+    }
+
+    if (
+      profile.plan === 'pro_annual' ||
+      profile.plan === 'annual' ||
+      (profile.plan === 'pro' && (!profile.billingCycle || profile.billingCycle === 'annual'))
+    ) {
+      return formatINR(1499);
+    }
+
+    return formatINR(0);
+  };
+
+  const subscriptionPriceBadge = getSubscriptionBadge(activeUserProfile);
+
   const twinNavItems: { id: NavTab; label: string; icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'profile', label: 'My Foundation', icon: User },
@@ -61,38 +99,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const systemNavItems: { id: NavTab; label: string; icon: React.ElementType; badge?: string }[] = [
-    { id: 'subscription', label: 'Subscription', icon: CreditCard, badge: '₹0' },
+    { id: 'subscription', label: 'Subscription', icon: CreditCard, badge: subscriptionPriceBadge },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   return (
-    <aside className="w-64 shrink-0 hidden lg:flex flex-col justify-between border-r border-white/10 dark:border-white/10 light:border-slate-200 bg-[#050505] dark:bg-[#050505] light:bg-slate-50 p-3.5 transition-colors min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] overflow-y-auto">
+    <aside
+      className={`${
+        isCollapsed ? 'w-[72px] p-2.5' : 'w-64 p-3.5'
+      } shrink-0 hidden lg:flex flex-col justify-between border-r border-white/10 dark:border-white/10 light:border-slate-200 bg-[#050505] dark:bg-[#050505] light:bg-slate-50 transition-all duration-200 min-h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] overflow-y-auto select-none`}
+    >
       <div className="space-y-4">
-        {/* Logo / Twin OS Brand */}
-        <div className="flex items-center gap-2.5 px-2 py-1">
-          <div className="w-7 h-7 rounded bg-blue-600 flex items-center justify-center text-white font-bold text-xs tracking-wider shadow-sm">
-            SDT
+        {/* Logo / Twin OS Brand & Collapse/Expand Toggle */}
+        <div className={`flex items-center ${isCollapsed ? 'justify-center flex-col gap-2' : 'justify-between'} px-1 py-1`}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded bg-blue-600 flex items-center justify-center text-white font-bold text-xs tracking-wider shadow-sm shrink-0">
+              SDT
+            </div>
+            {!isCollapsed && (
+              <div className="overflow-hidden">
+                <span className="font-bold text-xs uppercase tracking-tight text-slate-100 dark:text-slate-100 light:text-slate-900 block truncate">
+                  Digital Twin OS
+                </span>
+                <span className="text-[9px] text-blue-400 font-mono block truncate">
+                  {isDemo ? 'DEMO SHOWCASE' : 'AI CAREER OS V3'}
+                </span>
+              </div>
+            )}
           </div>
-          <div>
-            <span className="font-bold text-xs uppercase tracking-tight text-slate-100 dark:text-slate-100 light:text-slate-900 block">
-              Digital Twin OS
-            </span>
-            <span className="text-[9px] text-blue-400 font-mono block">
-              {isDemo ? 'DEMO SHOWCASE' : 'AI CAREER OS V3'}
-            </span>
-          </div>
+
+          {/* Sidebar Collapse/Expand Arrow Button */}
+          <button
+            id="sidebar-collapse-btn"
+            type="button"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white dark:text-slate-400 dark:hover:text-white light:text-slate-600 light:hover:text-slate-900 light:hover:bg-slate-200 border border-white/10 dark:border-white/10 light:border-slate-300 transition-colors cursor-pointer shrink-0"
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isCollapsed ? (
+              <ChevronRight className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronLeft className="w-3.5 h-3.5" />
+            )}
+          </button>
         </div>
 
         {/* AI CAREER OS INTELLIGENCE */}
         <div className="space-y-0.5">
-          <div className="px-2.5 flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400">
-              AI Career OS
-            </p>
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono font-bold">
-              10 ENGINES
-            </span>
-          </div>
+          {!isCollapsed && (
+            <div className="px-2.5 flex items-center justify-between mb-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400">
+                AI Career OS
+              </p>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono font-bold">
+                10 ENGINES
+              </span>
+            </div>
+          )}
           {aiCareerOsItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -102,17 +166,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id={`sidebar-nav-${item.id}`}
                 type="button"
                 onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                title={isCollapsed ? item.label : undefined}
+                className={`w-full flex items-center ${
+                  isCollapsed ? 'justify-center px-2 py-2' : 'justify-between px-3 py-1.5'
+                } rounded-lg text-xs font-medium transition-all cursor-pointer ${
                   isActive
                     ? 'bg-blue-600 text-white font-bold shadow-sm shadow-blue-900/30'
-                    : 'text-slate-300 hover:text-white hover:bg-white/5 light:text-slate-700 light:hover:bg-slate-200/70'
+                    : 'text-slate-300 hover:text-white hover:bg-white/5 dark:text-slate-300 dark:hover:text-white dark:hover:bg-white/5 light:text-slate-700 light:hover:bg-slate-200/70'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {!isCollapsed && <span className="truncate">{item.label}</span>}
                 </div>
-                {item.badge && !isActive && (
+                {!isCollapsed && item.badge && !isActive && (
                   <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-bold">
                     {item.badge}
                   </span>
@@ -124,9 +191,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* CORE DIGITAL TWIN */}
         <div className="space-y-0.5 pt-3 border-t border-white/10 dark:border-white/10 light:border-slate-200">
-          <p className="px-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-500 light:text-slate-500 mb-1.5">
-            Twin Records
-          </p>
+          {!isCollapsed && (
+            <p className="px-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-500 light:text-slate-500 mb-1.5">
+              Twin Records
+            </p>
+          )}
           {twinNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -136,15 +205,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id={`sidebar-nav-${item.id}`}
                 type="button"
                 onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                title={isCollapsed ? item.label : undefined}
+                className={`w-full flex items-center ${
+                  isCollapsed ? 'justify-center px-2 py-2' : 'justify-between px-3 py-1.5'
+                } rounded-lg text-xs font-medium transition-all cursor-pointer ${
                   isActive
                     ? 'bg-blue-600 text-white font-bold shadow-sm shadow-blue-900/30'
                     : 'text-slate-400 hover:text-white hover:bg-white/5 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/5 light:text-slate-700 light:hover:bg-slate-200/70'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {!isCollapsed && <span className="truncate">{item.label}</span>}
                 </div>
               </button>
             );
@@ -153,9 +225,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* SYSTEM NAVIGATION */}
         <div className="space-y-0.5 pt-3 border-t border-white/10 dark:border-white/10 light:border-slate-200">
-          <p className="px-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-500 light:text-slate-500 mb-1.5">
-            System
-          </p>
+          {!isCollapsed && (
+            <p className="px-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-500 light:text-slate-500 mb-1.5">
+              System
+            </p>
+          )}
           {systemNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -165,17 +239,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id={`sidebar-nav-${item.id}`}
                 type="button"
                 onClick={() => onTabChange(item.id)}
-                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                title={isCollapsed ? item.label : undefined}
+                className={`w-full flex items-center ${
+                  isCollapsed ? 'justify-center px-2 py-2' : 'justify-between px-3 py-1.5'
+                } rounded-lg text-xs font-medium transition-all cursor-pointer ${
                   isActive
                     ? 'bg-blue-600 text-white font-bold shadow-sm shadow-blue-900/30'
                     : 'text-slate-400 hover:text-white hover:bg-white/5 dark:text-slate-400 dark:hover:text-white dark:hover:bg-white/5 light:text-slate-700 light:hover:bg-slate-200/70'
                 }`}
               >
-                <div className="flex items-center gap-2.5">
-                  <Icon className="w-3.5 h-3.5 shrink-0" />
-                  <span>{item.label}</span>
+                <div className={`flex items-center ${isCollapsed ? 'justify-center' : 'gap-2.5'}`}>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {!isCollapsed && <span>{item.label}</span>}
                 </div>
-                {item.badge && !isActive && (
+                {!isCollapsed && item.badge && !isActive && (
                   <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
                     {item.badge}
                   </span>
@@ -192,10 +269,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id="sidebar-logout-btn"
           type="button"
           onClick={onLogout}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+          title={isCollapsed ? (isDemo ? 'Exit Demo Showcase' : 'Sign Out') : undefined}
+          className={`w-full flex items-center ${
+            isCollapsed ? 'justify-center px-2 py-2' : 'gap-2.5 px-3 py-2'
+          } rounded-lg text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer`}
         >
           <LogOut className="w-4 h-4 shrink-0" />
-          <span>{isDemo ? 'Exit Demo Showcase' : 'Sign Out'}</span>
+          {!isCollapsed && <span>{isDemo ? 'Exit Demo Showcase' : 'Sign Out'}</span>}
         </button>
       </div>
     </aside>

@@ -29,22 +29,34 @@ export interface GeminiCallParams {
 }
 
 // Robust Gemini invoker with exponential backoff and model fallbacks for 503 UNAVAILABLE / High Demand / Quota
-export async function callGeminiWithRetry(params: GeminiCallParams, maxRetries = 3): Promise<any> {
+export async function callGeminiWithRetry(params: GeminiCallParams, maxRetries = 4): Promise<any> {
   const ai = getGeminiClient();
   const fallbackModels = [
-    params.model || 'gemini-3.7-flash',
-    'gemini-flash-latest',
+    params.model || 'gemini-2.5-flash',
     'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-3.7-flash',
   ];
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const currentModel = fallbackModels[(attempt - 1) % fallbackModels.length];
+    
+    // Construct config specific to model capabilities
+    const currentConfig: any = { ...params.config };
+    if (currentModel === 'gemini-3.7-flash') {
+      if (!currentConfig.thinkingConfig) {
+        currentConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+    } else {
+      delete currentConfig.thinkingConfig;
+    }
+
     try {
       const response = await ai.models.generateContent({
         model: currentModel,
         contents: params.contents,
-        config: params.config,
+        config: currentConfig,
       });
       return response;
     } catch (err: any) {
@@ -62,11 +74,11 @@ export async function callGeminiWithRetry(params: GeminiCallParams, maxRetries =
         errMsg.includes('etimedout') ||
         errMsg.includes('rate limit');
 
-      console.warn(`[Gemini Serverless API] Attempt ${attempt}/${maxRetries} with ${currentModel} failed:`, err?.message || err);
-
-      if (isTransient && attempt < maxRetries) {
-        // Exponential backoff with jitter
-        const delayMs = attempt * 1000 + Math.floor(Math.random() * 400);
+      if (attempt < maxRetries) {
+        // If it's a 503 on the current model, immediately switch to the next fallback model without delay
+        const delayMs = errMsg.includes('503') || errMsg.includes('high demand')
+          ? 100
+          : Math.min(attempt * 400 + Math.floor(Math.random() * 200), 1200);
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
@@ -87,13 +99,67 @@ export async function callGeminiWithRetry(params: GeminiCallParams, maxRetries =
     errMsg.includes('429')
   ) {
     const error: any = new Error(
-      'Gemini is temporarily unavailable. Your data was collected successfully, but the AI evaluation could not be completed. Please try again.'
+      'Gemini is temporarily experiencing high demand. Please retry in a few moments.'
     );
     error.status = 503;
     error.code = 'GEMINI_UNAVAILABLE';
     error.isTransient = true;
-    error.userMessage = 'Gemini is temporarily unavailable. Your data was collected successfully, but the AI evaluation could not be completed. Please try again.';
+    error.userMessage = 'Gemini is temporarily experiencing high demand. Please retry in a few moments.';
     throw error;
+  }
+
+  throw lastError;
+}
+
+// Streaming Gemini invoker with fallback support
+export async function callGeminiStreamWithRetry(params: GeminiCallParams, maxRetries = 3): Promise<AsyncIterable<any>> {
+  const ai = getGeminiClient();
+  const fallbackModels = [
+    params.model || 'gemini-2.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-2.5-flash',
+  ];
+  let lastError: any = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const currentModel = fallbackModels[(attempt - 1) % fallbackModels.length];
+    const currentConfig: any = { ...params.config };
+    if (currentModel === 'gemini-3.7-flash') {
+      if (!currentConfig.thinkingConfig) {
+        currentConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+    } else {
+      delete currentConfig.thinkingConfig;
+    }
+
+    try {
+      const stream = await ai.models.generateContentStream({
+        model: currentModel,
+        contents: params.contents,
+        config: currentConfig,
+      });
+      return stream;
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = (err?.message || String(err)).toLowerCase();
+      const isTransient =
+        errMsg.includes('503') ||
+        errMsg.includes('unavailable') ||
+        errMsg.includes('high demand') ||
+        errMsg.includes('resource has been exhausted') ||
+        errMsg.includes('quota') ||
+        errMsg.includes('429') ||
+        errMsg.includes('overloaded');
+
+      if (attempt < maxRetries) {
+        const delayMs = errMsg.includes('503') || errMsg.includes('high demand') ? 100 : 400;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      if (!isTransient) {
+        break;
+      }
+    }
   }
 
   throw lastError;

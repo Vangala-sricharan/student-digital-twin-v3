@@ -71,8 +71,117 @@ async function postWithRetry<T>(url: string, body: any, maxRetries = 2): Promise
 
 export const aiService = {
   // ==============================================================================
-  // 1. AI CAREER ASSISTANT
+  // 1. AI CAREER ASSISTANT (Streaming & Fallback)
   // ==============================================================================
+  async askCareerAssistantStream(
+    params: {
+      message: string;
+      activeProfile: StudentProfile | null;
+      skills: SkillItem[];
+      projects: ProjectItem[];
+      achievements: AchievementItem[];
+      careerGoals: CareerGoalItem[];
+      history?: AssistantMessage[];
+    },
+    onChunk: (accumulatedText: string) => void
+  ): Promise<{ content: string; suggestedPrompts: string[]; error?: string; isTransient?: boolean }> {
+    try {
+      const response = await fetch('/api/ai/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, stream: true }),
+      });
+
+      if (!response.ok) {
+        const errorJson = await response.json().catch(() => ({}));
+        return {
+          content: '',
+          suggestedPrompts: [],
+          error: errorJson.error || `Server returned error ${response.status}`,
+          isTransient: response.status === 503 || errorJson.isTransient,
+        };
+      }
+
+      if (!response.body) {
+        return this.askCareerAssistant(params);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            const jsonStr = trimmed.slice(6).trim();
+            if (!jsonStr) continue;
+            try {
+              const parsed = JSON.parse(jsonStr);
+              if (parsed.error) {
+                return {
+                  content: fullText,
+                  suggestedPrompts: [],
+                  error: parsed.error,
+                  isTransient: true,
+                };
+              }
+              if (parsed.text) {
+                fullText += parsed.text;
+                onChunk(fullText);
+              }
+            } catch {
+              // Ignore malformed partial chunks
+            }
+          }
+        }
+      }
+
+      if (buffer.trim().startsWith('data: ')) {
+        try {
+          const parsed = JSON.parse(buffer.trim().slice(6).trim());
+          if (parsed.text) {
+            fullText += parsed.text;
+            onChunk(fullText);
+          }
+        } catch {}
+      }
+
+      // Parse suggested prompts if present
+      let content = fullText;
+      let suggestedPrompts: string[] = [];
+      if (fullText.includes('SUGGESTED NEXT QUESTIONS:')) {
+        const parts = fullText.split('SUGGESTED NEXT QUESTIONS:');
+        content = (parts[0] || '').trim();
+        const rawPrompts = (parts[1] || '').trim().split('\n');
+        suggestedPrompts = rawPrompts
+          .map((p) => p.replace(/^[-*0-9.)\s]+/, '').trim())
+          .filter((p) => p.length > 5 && p.length < 120)
+          .slice(0, 3);
+      }
+
+      return {
+        content: content || fullText,
+        suggestedPrompts: suggestedPrompts.length > 0 ? suggestedPrompts : [
+          'Which skills should I prioritize next for my target role?',
+          'How can I improve my project architectures?',
+          'What should be my 30-day focus plan?',
+        ],
+      };
+    } catch (err: any) {
+      console.warn('[Career Assistant Stream fallback]:', err?.message || err);
+      return this.askCareerAssistant(params);
+    }
+  },
+
   async askCareerAssistant(params: {
     message: string;
     activeProfile: StudentProfile | null;

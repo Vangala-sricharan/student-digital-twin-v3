@@ -1,13 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { callGeminiWithRetry, cleanAndParseJSON, handleApiError } from '../../_utils/gemini.js';
 
+interface LinkedInCacheEntry {
+  data: any;
+  timestamp: number;
+}
+const LINKEDIN_CACHE = new Map<string, LinkedInCacheEntry>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { linkedinUrl, profileText, profileBase64, targetRole, userId } = req.body || {};
+    const { linkedinUrl, profileText, profileBase64, targetRole, userId, bypassCache } = req.body || {};
 
     let normalizedUrl = (linkedinUrl || '').trim();
     if (!normalizedUrl) {
@@ -24,6 +31,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error: 'LinkedIn requires authentication to view profiles publicly. Please paste your LinkedIn profile text or upload your profile PDF (LinkedIn Profile → More → Save to PDF) for real analysis.',
         requiresInput: true,
       });
+    }
+
+    // Generate unique signature for caching
+    const contentSignature = profileBase64 ? profileBase64.slice(0, 100) : (profileText || '').slice(0, 100);
+    const cacheKey = `${userId || 'anon'}_${normalizedUrl}_${targetRole || ''}_${contentSignature}`;
+
+    if (!bypassCache) {
+      const cached = LINKEDIN_CACHE.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        return res.status(200).json(cached.data);
+      }
     }
 
     const rubricPrompt = `You are a Principal Tech Recruiter and LinkedIn Profile Optimizer.
@@ -90,13 +108,16 @@ RETURN STRICT JSON ONLY:
     }
 
     const response = await callGeminiWithRetry({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents,
+      config: {
+        responseMimeType: 'application/json',
+      },
     });
 
     const parsed = cleanAndParseJSON(response?.text || '{}');
 
-    return res.status(200).json({
+    const resultPayload = {
       id: `li_ana_${Date.now()}`,
       userId: userId || 'anonymous',
       linkedinUrl: normalizedUrl,
@@ -119,7 +140,11 @@ RETURN STRICT JSON ONLY:
       weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [],
       highestImpactImprovements: Array.isArray(parsed.highestImpactImprovements) ? parsed.highestImpactImprovements : [],
       recruiterFacingTips: Array.isArray(parsed.recruiterFacingTips) ? parsed.recruiterFacingTips : [],
-    });
+    };
+
+    LINKEDIN_CACHE.set(cacheKey, { data: resultPayload, timestamp: Date.now() });
+
+    return res.status(200).json(resultPayload);
   } catch (error: any) {
     return handleApiError(res, error, 'Failed to analyze LinkedIn profile');
   }

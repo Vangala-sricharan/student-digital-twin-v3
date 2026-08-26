@@ -70,7 +70,7 @@ Return clean, polished text with zero fabrication.`;
     }
 
     const response = await callGeminiWithRetry({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
     });
 

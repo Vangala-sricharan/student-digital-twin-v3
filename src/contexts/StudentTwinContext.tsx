@@ -110,59 +110,57 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
     setIsLoading(true);
     try {
-      // 1. Fetch user profile
-      const { data: profile } = await studentTwinService.fetchUserProfile(targetUserId);
+      // 1. Fetch complete cloud bundle (user metadata & local cache)
+      const { data: cloudBundle } = await studentTwinService.fetchCloudStudentTwin(targetUserId);
 
-      // 2. Fetch student profiles
-      const { data: students } = await studentTwinService.fetchStudentProfiles(targetUserId);
+      if (cloudBundle && cloudBundle.profile) {
+        setUserProfile(cloudBundle.profile);
+        setStudentProfiles(cloudBundle.students || []);
+        setAllSkills(cloudBundle.skills || []);
+        setAllProjects(cloudBundle.projects || []);
+        setAllAchievements(cloudBundle.achievements || []);
+        setAllCareerGoals(cloudBundle.careerGoals || []);
 
-      // 3. Fetch skills, projects, achievements, career goals
-      const [skillsRes, projectsRes, achRes, goalsRes] = await Promise.all([
-        studentTwinService.fetchSkills(targetUserId),
-        studentTwinService.fetchProjects(targetUserId),
-        studentTwinService.fetchAchievements(targetUserId),
-        studentTwinService.fetchCareerGoals(targetUserId),
-      ]);
+        const activeId =
+          cloudBundle.activeStudentId ||
+          cloudBundle.students?.find((s) => s.isActive)?.id ||
+          cloudBundle.students?.[0]?.id ||
+          null;
+        setActiveStudentProfileId(activeId);
 
-      const loadedProfile = profile || {
-        id: targetUserId,
-        email: user?.email || '',
-        fullName: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
-        university: '',
-        degree: '',
-        branch: '',
-        program: '',
-        year: '',
-        careerGoal: '',
-        targetRole: '',
-        plan: 'free' as const,
-        isOnboarded: false,
-        createdAt: user?.created_at || new Date().toISOString(),
-        isDemo: false,
-      };
-
-      setUserProfile(loadedProfile);
-      setStudentProfiles(students);
-      setAllSkills(skillsRes.data || []);
-      setAllProjects(projectsRes.data || []);
-      setAllAchievements(achRes.data || []);
-      setAllCareerGoals(goalsRes.data || []);
-
-      // Check if user is already onboarded
-      const hasOnboardingDone = Boolean(loadedProfile.isOnboarded || (loadedProfile.university && loadedProfile.year));
-      setShowOnboarding(!hasOnboardingDone);
-
-      // Select active student profile
-      const savedActiveId = localStorage.getItem(`sdt_user_${targetUserId}_active_student_id`);
-      const activeExists = students.find((s) => s.id === savedActiveId);
-      if (activeExists) {
-        setActiveStudentProfileId(activeExists.id);
-      } else if (students.length > 0) {
-        const defaultActive = students.find((s) => s.isActive) || students[0];
-        setActiveStudentProfileId(defaultActive.id);
-        localStorage.setItem(`sdt_user_${targetUserId}_active_student_id`, defaultActive.id);
+        const hasOnboardingDone = Boolean(
+          cloudBundle.profile.isOnboarded ||
+          (cloudBundle.profile.university && cloudBundle.profile.year)
+        );
+        setShowOnboarding(!hasOnboardingDone);
       } else {
+        // Brand new user with no cloud data yet
+        const { data: profile } = await studentTwinService.fetchUserProfile(targetUserId);
+        const loadedProfile = profile || {
+          id: targetUserId,
+          email: user?.email || '',
+          fullName: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
+          university: '',
+          degree: '',
+          branch: '',
+          program: '',
+          year: '',
+          careerGoal: '',
+          targetRole: '',
+          plan: 'free' as const,
+          isOnboarded: false,
+          createdAt: user?.created_at || new Date().toISOString(),
+          isDemo: false,
+        };
+
+        setUserProfile(loadedProfile);
+        setStudentProfiles([]);
+        setAllSkills([]);
+        setAllProjects([]);
+        setAllAchievements([]);
+        setAllCareerGoals([]);
         setActiveStudentProfileId(null);
+        setShowOnboarding(true);
       }
     } catch (err) {
       console.warn('Error loading student twin user data:', err);
@@ -765,7 +763,8 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       allSkills,
       allProjects,
       allAchievements,
-      allCareerGoals
+      allCareerGoals,
+      activeStudentProfileId
     );
 
     setIsSyncing(false);

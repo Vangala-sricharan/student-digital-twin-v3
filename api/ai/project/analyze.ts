@@ -100,8 +100,11 @@ RETURN STRICT JSON ONLY:
 }`;
 
     const response = await callGeminiWithRetry({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
     });
 
     const parsed = cleanAndParseJSON(response?.text || '{}');

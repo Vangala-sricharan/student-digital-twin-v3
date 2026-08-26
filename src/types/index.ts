@@ -224,6 +224,7 @@ export interface AssistantMessage {
   timestamp: string;
   sources?: string[];
   suggestedPrompts?: string[];
+  isStreaming?: boolean;
 }
 
 export interface ResumeEducation {

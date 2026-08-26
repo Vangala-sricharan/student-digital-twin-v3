@@ -7,12 +7,17 @@ import {
   Settings,
   CreditCard,
   ChevronDown,
+  UploadCloud,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { Badge } from '../common/Badge';
 import { UserProfile, NavTab } from '../../types';
 import { PRICING_PLANS } from '../../constants/pricing';
 import { formatINR } from '../../utils/formatters';
+import { useStudentTwin } from '../../contexts/StudentTwinContext';
 
 interface DashboardHeaderProps {
   userProfile: UserProfile | null;
@@ -29,6 +34,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onLogout,
   isDemo = false,
 }) => {
+  const { uploadDataToCloud, isSyncing, syncStatus, syncMessage } = useStudentTwin();
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -46,6 +52,11 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
     onTabChange(tab);
     setMobileNavOpen(false);
     setUserDropdownOpen(false);
+  };
+
+  const handleUploadCloud = async () => {
+    if (isDemo) return;
+    await uploadDataToCloud();
   };
 
   return (
@@ -76,17 +87,65 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             </div>
           </div>
 
-          {/* Right: Plan badge, Theme toggle & User Menu */}
-          <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Right: Cloud Sync, Plan badge, Theme toggle & User Menu */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Upload to Cloud Button (Production User Sync) */}
+            {!isDemo && (
+              <button
+                id="header-cloud-sync-btn"
+                type="button"
+                onClick={handleUploadCloud}
+                disabled={isSyncing}
+                title={
+                  syncStatus === 'success'
+                    ? 'Cloud Sync Successful: Your Student Twin data is safely stored in the cloud.'
+                    : syncStatus === 'error'
+                    ? syncMessage || 'Cloud Sync Failed — Please try again.'
+                    : 'Upload your current profile, projects, skills, and twin data to Supabase'
+                }
+                className={`hidden md:inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer select-none ${
+                  isSyncing
+                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 opacity-80'
+                    : syncStatus === 'success'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : syncStatus === 'error'
+                    ? 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                    : 'bg-white/5 hover:bg-white/10 dark:bg-white/5 dark:hover:bg-white/10 light:bg-slate-100 light:hover:bg-slate-200 border-white/10 dark:border-white/10 light:border-slate-300 text-slate-200 dark:text-slate-200 light:text-slate-700'
+                }`}
+              >
+                {isSyncing ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+                    <span>Uploading...</span>
+                  </>
+                ) : syncStatus === 'success' ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Cloud Sync Successful</span>
+                  </>
+                ) : syncStatus === 'error' ? (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Sync Failed</span>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Upload to Cloud</span>
+                  </>
+                )}
+              </button>
+            )}
+
             {/* Active Plan badge */}
-            <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold border ${
+            <span className={`hidden xl:inline-flex items-center h-9 px-2.5 rounded-lg text-[10px] font-mono font-semibold border select-none ${
               userProfile?.subscriptionStatus === 'pending_verification'
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
                 : userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
                 ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
                 : userProfile?.plan === 'pro_annual' || userProfile?.plan === 'annual' || userProfile?.plan === 'pro'
                 ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                : 'bg-white/5 border-white/10 text-slate-400'
+                : 'bg-white/5 border-white/10 dark:bg-white/5 dark:border-white/10 light:bg-slate-100 light:border-slate-300 text-slate-400'
             }`}>
               {userProfile?.subscriptionStatus === 'pending_verification'
                 ? userProfile?.plan === 'pro_monthly' || userProfile?.billingCycle === 'monthly'
@@ -107,18 +166,16 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 id="dashboard-user-menu-btn"
                 type="button"
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                className="flex items-center gap-2 p-1 sm:p-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                className="h-9 inline-flex items-center gap-2 px-2 sm:px-2.5 rounded-lg border border-white/10 dark:border-white/10 light:border-slate-300 bg-white/5 hover:bg-white/10 dark:bg-white/5 dark:hover:bg-white/10 light:bg-slate-100 light:hover:bg-slate-200 transition-colors cursor-pointer select-none"
                 aria-expanded={userDropdownOpen}
               >
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded bg-slate-800 border border-white/10 flex items-center justify-center text-white font-bold text-xs">
+                <div className="w-6 h-6 rounded-md bg-blue-600 dark:bg-blue-600 light:bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
                   {initials || <User className="w-3.5 h-3.5" />}
                 </div>
-                <div className="hidden md:block text-left">
-                  <span className="text-xs font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800 block truncate max-w-[120px]">
-                    {displayName}
-                  </span>
-                </div>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-100 dark:text-slate-100 light:text-slate-900 truncate max-w-[100px] sm:max-w-[130px] md:max-w-[160px]">
+                  {displayName}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-slate-400 light:text-slate-600 shrink-0" />
               </button>
 
               {userDropdownOpen && (

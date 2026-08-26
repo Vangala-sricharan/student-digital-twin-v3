@@ -21,6 +21,9 @@ import {
   Zap,
   Github,
   Linkedin,
+  UploadCloud,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { UserProfile, NavTab } from '../../types';
 import { Card } from '../common/Card';
@@ -28,6 +31,7 @@ import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { EmptyState } from '../common/EmptyState';
 import { isSupabaseConfigured } from '../../lib/supabase';
+import { useStudentTwin } from '../../contexts/StudentTwinContext';
 
 interface DashboardHomeProps {
   userProfile: UserProfile | null;
@@ -40,6 +44,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   onNavigate,
   isDemo = false,
 }) => {
+  const { uploadDataToCloud, isSyncing, syncStatus, syncMessage } = useStudentTwin();
   const displayName = userProfile?.fullName || 'Student';
 
   return (
@@ -75,6 +80,34 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 {isDemo ? 'DEMO PRO' : 'FREE PLAN (₹0)'}
               </span>
             </div>
+
+            {!isDemo && (
+              <Button
+                id="home-cloud-sync-btn"
+                variant={syncStatus === 'success' ? 'secondary' : 'outline'}
+                size="md"
+                onClick={() => uploadDataToCloud()}
+                disabled={isSyncing}
+                isLoading={isSyncing}
+                leftIcon={
+                  syncStatus === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  ) : syncStatus === 'error' ? (
+                    <AlertTriangle className="w-4 h-4 text-rose-400" />
+                  ) : (
+                    <UploadCloud className="w-4 h-4 text-blue-400" />
+                  )
+                }
+              >
+                {isSyncing
+                  ? 'Uploading...'
+                  : syncStatus === 'success'
+                  ? 'Cloud Sync Successful'
+                  : syncStatus === 'error'
+                  ? 'Retry Cloud Upload'
+                  : 'Upload to Cloud'}
+              </Button>
+            )}
 
             <Button
               id="dashboard-assistant-btn"

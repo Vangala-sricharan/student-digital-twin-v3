@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { callGeminiWithRetry, handleApiError } from '../_utils/gemini.js';
+import { callGeminiWithRetry, callGeminiStreamWithRetry, handleApiError } from '../_utils/gemini.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -7,54 +7,104 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { message, activeProfile, skills, projects, achievements, careerGoals, history } = req.body || {};
+    const { message, activeProfile, skills, projects, achievements, careerGoals, history, stream = false } = req.body || {};
 
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Message query is required' });
     }
 
-    // Ground the assistant strictly in the active user's empirical data
-    const contextPrompt = `You are the AI Career Assistant for a Student Digital Twin OS.
-You must provide rigorous, evidence-based, empathetic, and actionable career guidance.
+    // Static system instructions separated for token caching & fast prompt evaluation
+    const systemInstruction = `You are the expert AI Career Intelligence Assistant for the Student Digital Twin OS.
+Provide rigorous, evidence-based, concise, and highly actionable career guidance grounded strictly in the student's profile context.
+Directives:
+1. Reference the student's target role, recorded skills, projects, and achievements.
+2. Structure your guidance with clear bold headings, tight bullet points, and concrete next actions.
+3. Be encouraging, mentorship-oriented, and realistic. Never invent fake credentials or hallucinations.
+4. At the very end on a new line, always provide a section:
+SUGGESTED NEXT QUESTIONS:
+- [Short follow-up 1]
+- [Short follow-up 2]
+- [Short follow-up 3]`;
 
-CRITICAL DIRECTIVES:
-1. Ground your advice STRICTLY in the student's real profile data provided below.
-2. If the user asks about missing skills or readiness, analyze the gap between their actual recorded skills/projects and standard expectations for their Target Role.
-3. NEVER invent fake companies, fake work experiences, fake certifications, or make up metrics.
-4. If there is insufficient evidence to give a confident answer, say so honestly and provide the exact step they need to record.
-5. Format your response cleanly with clear headings, bullet points, and actionable next steps.
+    // Compact, high-signal profile grounding context
+    const compactSkills = (skills || [])
+      .slice(0, 18)
+      .map((s: any) => `${s.skillName} (${s.category || 'Tech'} - ${s.proficiency || 'Intermediate'}, ${s.score || 70}/100)`)
+      .join(', ');
 
-STUDENT DIGITAL TWIN CONTEXT:
-- Name: ${activeProfile?.name || 'Student'}
-- University: ${activeProfile?.university || 'Not specified'}
-- Degree & Branch: ${activeProfile?.degree || ''} ${activeProfile?.branch || ''} (${activeProfile?.year || 'Year unspecified'})
-- Target Role: ${activeProfile?.targetRole || activeProfile?.careerGoal || 'Software Engineer / AI Engineer'}
-- Bio: ${activeProfile?.bio || 'None provided'}
-- GitHub: ${activeProfile?.githubUrl || 'Not linked'}
-- LinkedIn: ${activeProfile?.linkedinUrl || 'Not linked'}
+    const compactProjects = (projects || [])
+      .slice(0, 5)
+      .map((p: any) => `• ${p.title} [${p.difficulty || 'Intermediate'}] - Tech: ${(p.techStack || []).join(', ')}. Role: ${p.role || 'Developer'}. Summary: ${p.description || ''}`)
+      .join('\n');
 
-RECORDED SKILLS (${skills?.length || 0}):
-${(skills || []).map((s: any) => `- ${s.skillName} (${s.category} | ${s.proficiency} | Score: ${s.score}/100)`).join('\n') || 'No skills recorded yet.'}
+    const compactAchievements = (achievements || [])
+      .slice(0, 4)
+      .map((a: any) => `• ${a.title} (${a.organization || 'Org'}, ${a.date || ''})`)
+      .join('\n');
 
-RECORDED PROJECTS (${projects?.length || 0}):
-${(projects || []).map((p: any) => `- ${p.title} (${p.difficulty} | Role: ${p.role} | Tech: ${(p.techStack || []).join(', ')} | Status: ${p.status})\n  Description: ${p.description}\n  Architecture: ${p.architecture || 'None'}\n  GitHub: ${p.githubUrl || 'None'}`).join('\n\n') || 'No projects recorded yet.'}
+    const compactGoals = (careerGoals || [])
+      .slice(0, 2)
+      .map((g: any) => `Target: ${g.targetRole} | Companies: ${(g.targetCompanies || []).join(', ')} | Timeline: ${g.timeline || '6-12m'}`)
+      .join('; ');
 
-RECORDED ACHIEVEMENTS & CERTIFICATIONS (${achievements?.length || 0}):
-${(achievements || []).map((a: any) => `- ${a.title} by ${a.organization} (${a.date}): ${a.description}`).join('\n') || 'No achievements recorded yet.'}
+    const compactHistory = (history || [])
+      .slice(-4)
+      .map((h: any) => `${h.sender === 'user' ? 'User' : 'Assistant'}: ${h.content}`)
+      .join('\n\n');
 
-RECORDED CAREER GOALS:
-${(careerGoals || []).map((g: any) => `- Target: ${g.targetRole} | Companies: ${(g.targetCompanies || []).join(', ')} | Timeline: ${g.timeline}\n  Required Skills Target: ${(g.requiredSkills || []).join(', ')}`).join('\n') || 'No explicit career goals recorded yet.'}
+    const contextPrompt = `STUDENT PROFILE:
+- Name: ${activeProfile?.name || 'Student'} | Degree: ${activeProfile?.degree || ''} ${activeProfile?.branch || ''} (${activeProfile?.year || 'Current'})
+- Target Role: ${activeProfile?.targetRole || activeProfile?.careerGoal || 'Software / AI Engineer'}
+- GitHub: ${activeProfile?.githubUrl ? 'Connected' : 'Not linked'} | LinkedIn: ${activeProfile?.linkedinUrl ? 'Connected' : 'Not linked'}
+- Verified Skills: ${compactSkills || 'None recorded yet.'}
+- Key Projects:\n${compactProjects || 'None recorded yet.'}
+- Key Achievements:\n${compactAchievements || 'None recorded yet.'}
+- Career Goals: ${compactGoals || 'General SWE / AI growth'}
 
-RECENT CONVERSATION HISTORY:
-${(history || []).slice(-6).map((h: any) => `${h.sender === 'user' ? 'User' : 'Assistant'}: ${h.content}`).join('\n')}
+${compactHistory ? `RECENT CONVERSATION:\n${compactHistory}\n\n` : ''}USER QUESTION: "${message.trim()}"`;
 
-USER QUESTION: "${message}"
+    // Handle Streaming requests (Server-Sent Events)
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      if (typeof (res as any).flushHeaders === 'function') {
+        (res as any).flushHeaders();
+      }
 
-Respond directly to the user in a helpful, mentoring tone. Include 2-3 specific suggested follow-up prompts at the very end in a section labeled "SUGGESTED NEXT QUESTIONS:".`;
+      try {
+        const responseStream = await callGeminiStreamWithRetry({
+          model: 'gemini-2.5-flash',
+          contents: contextPrompt,
+          config: {
+            systemInstruction,
+          },
+        });
 
+        for await (const chunk of responseStream) {
+          const text = chunk?.text;
+          if (text) {
+            res.write(`data: ${JSON.stringify({ text })}\n\n`);
+          }
+        }
+
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        return res.end();
+      } catch (streamErr: any) {
+        console.error('[Career Assistant Stream Error]:', streamErr);
+        res.write(`data: ${JSON.stringify({ error: streamErr?.message || 'Streaming failed', done: true })}\n\n`);
+        return res.end();
+      }
+    }
+
+    // Standard Non-streaming response fallback
     const response = await callGeminiWithRetry({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents: contextPrompt,
+      config: {
+        systemInstruction,
+      },
     });
 
     const text = response?.text || 'Unable to generate career guidance at this time.';

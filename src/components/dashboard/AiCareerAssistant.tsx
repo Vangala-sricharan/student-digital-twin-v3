@@ -94,45 +94,79 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const assistantTempId = `ast_${Date.now() + 1}`;
+    const assistantPlaceholder: AssistantMessage = {
+      id: assistantTempId,
+      sender: 'assistant',
+      content: '',
+      timestamp: new Date().toISOString(),
+      isStreaming: true,
+      suggestedPrompts: [],
+    };
+
+    setMessages((prev) => [...prev, userMsg, assistantPlaceholder]);
     setIsLoading(true);
 
-    const res = await aiService.askCareerAssistant({
-      message: query,
-      activeProfile: activeStudentProfile,
-      skills: Array.isArray(skills) ? skills : [],
-      projects: Array.isArray(projects) ? projects : [],
-      achievements: Array.isArray(achievements) ? achievements : [],
-      careerGoals: Array.isArray(careerGoals) ? careerGoals : [],
-      history: messages.slice(-6),
-    });
+    const res = await aiService.askCareerAssistantStream(
+      {
+        message: query,
+        activeProfile: activeStudentProfile,
+        skills: Array.isArray(skills) ? skills : [],
+        projects: Array.isArray(projects) ? projects : [],
+        achievements: Array.isArray(achievements) ? achievements : [],
+        careerGoals: Array.isArray(careerGoals) ? careerGoals : [],
+        history: messages.slice(-6),
+      },
+      (accumulatedText) => {
+        let cleanDisplay = accumulatedText;
+        if (cleanDisplay.includes('SUGGESTED NEXT QUESTIONS:')) {
+          cleanDisplay = cleanDisplay.split('SUGGESTED NEXT QUESTIONS:')[0].trim();
+        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantTempId
+              ? { ...m, content: cleanDisplay, isStreaming: true }
+              : m
+          )
+        );
+      }
+    );
 
     setIsLoading(false);
 
     if (res.error) {
       setErrorMessage(res.error);
       setIsTransientError(Boolean(res.isTransient));
-      const errorMsg: AssistantMessage = {
-        id: `err_${Date.now()}`,
-        sender: 'assistant',
-        content: `⚠️ **Evaluation Notice:** ${res.error}`,
-        timestamp: new Date().toISOString(),
-        suggestedPrompts: [],
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantTempId
+            ? {
+                ...m,
+                content: `⚠️ **Evaluation Notice:** ${res.error}`,
+                isStreaming: false,
+                suggestedPrompts: [],
+              }
+            : m
+        )
+      );
     } else {
-      const assistantContent = typeof res.content === 'string' && res.content.trim().length > 0
-        ? res.content
-        : 'I evaluated your profile context, but no detailed response was generated. Please try asking a more specific question.';
+      const assistantContent =
+        typeof res.content === 'string' && res.content.trim().length > 0
+          ? res.content
+          : 'I evaluated your profile context, but no detailed response was generated. Please try asking a more specific question.';
 
-      const assistantMsg: AssistantMessage = {
-        id: `ast_${Date.now()}`,
-        sender: 'assistant',
-        content: assistantContent,
-        timestamp: new Date().toISOString(),
-        suggestedPrompts: Array.isArray(res.suggestedPrompts) ? res.suggestedPrompts : [],
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantTempId
+            ? {
+                ...m,
+                content: assistantContent,
+                suggestedPrompts: Array.isArray(res.suggestedPrompts) ? res.suggestedPrompts : [],
+                isStreaming: false,
+              }
+            : m
+        )
+      );
       setErrorMessage(null);
       setIsTransientError(false);
     }
@@ -160,31 +194,46 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
     ]);
   };
 
-  const renderMessageContent = (rawContent: any) => {
+  const renderMessageContent = (rawContent: any, isStreaming?: boolean) => {
     const content = typeof rawContent === 'string' ? rawContent : String(rawContent || '');
     if (!content.trim()) {
+      if (isStreaming) {
+        return (
+          <div className="flex items-center gap-2 text-slate-400 py-1">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" />
+            <span className="text-xs">Analyzing your digital twin context...</span>
+          </div>
+        );
+      }
       return <p className="italic text-slate-400">No message content available.</p>;
     }
 
     const paragraphs = content.split('\n\n').filter(Boolean);
 
-    return paragraphs.map((paragraph, pIdx) => {
-      const trimmedPara = paragraph.trim();
-      // Formatting bullet points
-      if (trimmedPara.startsWith('- ') || trimmedPara.startsWith('* ')) {
-        const items = trimmedPara.split('\n').filter(Boolean);
-        return (
-          <ul key={pIdx} className="list-disc pl-4 space-y-1 my-1.5">
-            {items.map((it, i) => {
-              const cleanText = it.replace(/^[-*]\s+/, '').trim();
-              return <li key={i}>{cleanText}</li>;
-            })}
-          </ul>
-        );
-      }
+    return (
+      <>
+        {paragraphs.map((paragraph, pIdx) => {
+          const trimmedPara = paragraph.trim();
+          // Formatting bullet points
+          if (trimmedPara.startsWith('- ') || trimmedPara.startsWith('* ')) {
+            const items = trimmedPara.split('\n').filter(Boolean);
+            return (
+              <ul key={pIdx} className="list-disc pl-4 space-y-1 my-1.5">
+                {items.map((it, i) => {
+                  const cleanText = it.replace(/^[-*]\s+/, '').trim();
+                  return <li key={i}>{cleanText}</li>;
+                })}
+              </ul>
+            );
+          }
 
-      return <p key={pIdx}>{trimmedPara}</p>;
-    });
+          return <p key={pIdx}>{trimmedPara}</p>;
+        })}
+        {isStreaming && (
+          <span className="inline-block w-1.5 h-3.5 bg-blue-400 animate-pulse ml-1 align-middle rounded-xs" />
+        )}
+      </>
+    );
   };
 
   return (
@@ -290,7 +339,7 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
                 >
                   {/* Message Content */}
                   <div className="whitespace-pre-wrap font-sans space-y-2">
-                    {renderMessageContent(msg.content)}
+                    {renderMessageContent(msg.content, msg.isStreaming)}
                   </div>
 
                   {/* Retry option on error messages */}
@@ -351,8 +400,8 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
             );
           })}
 
-          {/* Loading Indicator */}
-          {isLoading && (
+          {/* Loading Indicator for non-streaming fallback */}
+          {isLoading && !messages.some((m) => m.isStreaming) && (
             <div className="flex gap-3 max-w-2xl">
               <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0 text-blue-400">
                 <Bot className="w-4 h-4 animate-pulse" />
@@ -395,7 +444,7 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
               e.preventDefault();
               handleSendMessage();
             }}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2.5"
           >
             <input
               id="assistant-input-field"
@@ -404,7 +453,7 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder={`Ask anything about your ${activeStudentProfile?.targetRole || 'career'} roadmap, skills, or projects...`}
               disabled={isLoading}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-900 light:bg-white border border-slate-800 dark:border-slate-800 light:border-slate-300 text-slate-100 dark:text-slate-100 light:text-slate-900 text-xs sm:text-sm focus:outline-none focus:border-blue-500 transition-colors placeholder:text-slate-500 disabled:opacity-50"
+              className="flex-1 h-11 px-4 rounded-xl bg-slate-900 dark:bg-slate-900 light:bg-white border border-slate-800 dark:border-slate-800 light:border-slate-300 text-slate-100 dark:text-slate-100 light:text-slate-900 text-xs sm:text-sm focus:outline-none focus:border-blue-500 transition-colors placeholder:text-slate-500 disabled:opacity-60"
             />
             <Button
               id="assistant-send-btn"
@@ -412,7 +461,8 @@ Ask me anything about skill roadmaps, project improvements, resume alignment, in
               variant="primary"
               size="md"
               disabled={!inputMessage.trim() || isLoading}
-              leftIcon={<Send className="w-4 h-4" />}
+              leftIcon={<Send className="w-4 h-4 shrink-0" />}
+              className="h-11 px-5 rounded-xl font-semibold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2"
             >
               Send
             </Button>

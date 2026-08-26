@@ -38,8 +38,30 @@ export const GitHubReadiness: React.FC<GitHubReadinessProps> = ({ isDemo = false
   });
   const [analysisResult, setAnalysisResult] = useState<GitHubReadinessResult | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingStage, setLoadingStage] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isTransientError, setIsTransientError] = useState<boolean>(false);
+
+  // Progressive loading status updates during active audit
+  useEffect(() => {
+    let timer: any;
+    if (isLoading) {
+      setLoadingStage(0);
+      timer = setInterval(() => {
+        setLoadingStage((prev) => (prev < 3 ? prev + 1 : prev));
+      }, 1200);
+    } else {
+      setLoadingStage(0);
+    }
+    return () => clearInterval(timer);
+  }, [isLoading]);
+
+  const loadingStages = [
+    'Connecting to GitHub API & verifying account...',
+    'Analyzing repositories, commit history & README evidence...',
+    'Evaluating 6-dimension recruiter readiness rubric...',
+    'Synthesizing score & tailored recommendations...',
+  ];
 
   // Sync with active student profile github URL on load or profile switch
   useEffect(() => {
@@ -128,22 +150,22 @@ export const GitHubReadiness: React.FC<GitHubReadinessProps> = ({ isDemo = false
   return (
     <div className="space-y-6">
       {/* Header Banner */}
-      <Card className="p-6">
+      <Card className="p-5 sm:p-6">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800 dark:bg-slate-800 light:bg-slate-900 flex items-center justify-center text-white shadow-md">
-              <Github className="w-6 h-6" />
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-slate-800 dark:bg-slate-800 light:bg-slate-100 border border-slate-700 dark:border-slate-700 light:border-slate-300 flex items-center justify-center text-slate-100 dark:text-slate-100 light:text-slate-900 shrink-0 shadow-sm">
+              <Github className="w-6 h-6 text-slate-100 dark:text-slate-100 light:text-slate-900" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
                   GitHub Technical Readiness Audit
                 </h1>
                 <Badge variant="slate" size="sm">
                   PUBLIC API EVIDENCE + RECRUITER AI
                 </Badge>
               </div>
-              <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-0.5">
+              <p className="text-xs text-slate-400 dark:text-slate-400 light:text-slate-600 mt-1">
                 Evaluates repository quality, commit consistency, README documentation, and tech recruiter appeal.
               </p>
             </div>
@@ -188,6 +210,33 @@ export const GitHubReadiness: React.FC<GitHubReadinessProps> = ({ isDemo = false
               {isLoading ? 'Verifying & Auditing...' : 'Run Real GitHub Audit'}
             </Button>
           </form>
+
+          {isLoading && (
+            <div className="mt-4 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-5 h-5 text-blue-400 animate-spin shrink-0" />
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-300">
+                      Step {loadingStage + 1} of {loadingStages.length}
+                    </span>
+                    <span className="text-[10px] text-blue-400 font-mono">
+                      Running Technical Audit
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200 font-medium">
+                    {loadingStages[loadingStage]}
+                  </p>
+                </div>
+              </div>
+              <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-3">
+                <div
+                  className="bg-blue-500 h-full transition-all duration-700 ease-out rounded-full"
+                  style={{ width: `${((loadingStage + 1) / loadingStages.length) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
 
           {errorMessage && (
             <div className="mt-3 p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">

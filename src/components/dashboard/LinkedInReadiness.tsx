@@ -43,7 +43,29 @@ export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = f
   const [isProcessingFile, setIsProcessingFile] = useState<boolean>(false);
   const [analysisResult, setAnalysisResult] = useState<LinkedInReadinessResult | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingStage, setLoadingStage] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Progressive loading status updates during active audit
+  useEffect(() => {
+    let timer: any;
+    if (isLoading) {
+      setLoadingStage(0);
+      timer = setInterval(() => {
+        setLoadingStage((prev) => (prev < 3 ? prev + 1 : prev));
+      }, 1200);
+    } else {
+      setLoadingStage(0);
+    }
+    return () => clearInterval(timer);
+  }, [isLoading]);
+
+  const loadingStages = [
+    'Parsing LinkedIn profile content & evidence...',
+    'Analyzing headline, About section & technical positioning...',
+    'Evaluating 9-dimension recruiter rubric & keyword alignment...',
+    'Synthesizing score, gap analysis & recruiter recommendations...',
+  ];
 
   // Sync with active student profile
   useEffect(() => {
@@ -369,6 +391,33 @@ export const LinkedInReadiness: React.FC<LinkedInReadinessProps> = ({ isDemo = f
             >
               {isLoading ? 'Auditing LinkedIn Profile...' : 'Run LinkedIn Recruiter Audit'}
             </Button>
+
+            {isLoading && (
+              <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                <div className="flex items-center gap-3">
+                  <RefreshCw className="w-5 h-5 text-[#0077b5] animate-spin shrink-0" />
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-300">
+                        Step {loadingStage + 1} of {loadingStages.length}
+                      </span>
+                      <span className="text-[10px] text-blue-400 font-mono">
+                        Running Recruiter Audit
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-200 font-medium">
+                      {loadingStages[loadingStage]}
+                    </p>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-3">
+                  <div
+                    className="bg-[#0077b5] h-full transition-all duration-700 ease-out rounded-full"
+                    style={{ width: `${((loadingStage + 1) / loadingStages.length) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {errorMessage && (
               <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start gap-2">

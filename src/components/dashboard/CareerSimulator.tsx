@@ -222,20 +222,21 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
 
             {/* Simulated Skills */}
             <div className="space-y-2">
-              <span className="text-xs font-semibold text-slate-300 block">
+              <span className="text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 block">
                 1. Add Hypothetical Skills ({scenario.addedSkills.length})
               </span>
-              <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-50 border border-slate-800">
+              <div className="flex flex-wrap gap-2 min-h-[42px] p-2.5 rounded-xl bg-slate-950/50 dark:bg-slate-950/50 light:bg-slate-100 border border-slate-800 dark:border-slate-800 light:border-slate-300">
                 {scenario.addedSkills.map((sk) => (
                   <span
                     key={sk}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/20 text-blue-400 text-xs font-medium border border-blue-500/30"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-500/20 dark:bg-blue-500/20 light:bg-blue-100 text-blue-300 dark:text-blue-300 light:text-blue-800 text-xs font-semibold border border-blue-500/40 dark:border-blue-500/40 light:border-blue-300 shadow-xs"
                   >
                     <span>{sk}</span>
                     <button
                       type="button"
                       onClick={() => removeSkill(sk)}
-                      className="hover:text-white"
+                      className="hover:text-white dark:hover:text-white light:hover:text-blue-950 transition-colors p-0.5 cursor-pointer"
+                      title={`Remove ${sk}`}
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -244,7 +245,7 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
               </div>
 
               {/* Quick skill add chips */}
-              <div className="flex flex-wrap gap-1 pt-1">
+              <div className="flex flex-wrap gap-1.5 pt-1">
                 {POPULAR_SKILL_SUGGESTIONS.filter((s) => !scenario.addedSkills.includes(s))
                   .slice(0, 5)
                   .map((s) => (
@@ -252,9 +253,9 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                       key={s}
                       type="button"
                       onClick={() => addSkill(s)}
-                      className="text-[11px] px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1 cursor-pointer"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 text-slate-200 dark:text-slate-200 light:text-slate-800 border border-slate-700 dark:border-slate-700 light:border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer font-medium shadow-xs"
                     >
-                      <Plus className="w-2.5 h-2.5" />
+                      <Plus className="w-3 h-3 shrink-0" />
                       <span>{s}</span>
                     </button>
                   ))}
@@ -263,20 +264,21 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
 
             {/* Simulated Projects */}
             <div className="space-y-2">
-              <span className="text-xs font-semibold text-slate-300 block">
+              <span className="text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 block">
                 2. Add High-Impact Portfolio Project ({scenario.addedProjects.length})
               </span>
               <div className="space-y-1.5">
                 {scenario.addedProjects.map((p) => (
                   <div
                     key={p}
-                    className="flex items-center justify-between p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs text-indigo-300"
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-indigo-500/15 dark:bg-indigo-500/15 light:bg-indigo-50 border border-indigo-500/30 dark:border-indigo-500/30 light:border-indigo-200 text-xs text-indigo-200 dark:text-indigo-200 light:text-indigo-900 font-medium"
                   >
                     <span className="truncate">{p}</span>
                     <button
                       type="button"
                       onClick={() => removeProject(p)}
-                      className="text-indigo-400 hover:text-white p-1"
+                      className="text-indigo-400 hover:text-white dark:hover:text-white light:hover:text-indigo-950 p-1 transition-colors cursor-pointer"
+                      title="Remove project"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -285,7 +287,7 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
               </div>
 
               {/* Quick project chips */}
-              <div className="flex flex-wrap gap-1 pt-1">
+              <div className="flex flex-wrap gap-1.5 pt-1">
                 {POPULAR_PROJECT_SUGGESTIONS.filter((p) => !scenario.addedProjects.includes(p))
                   .slice(0, 2)
                   .map((p) => (
@@ -293,9 +295,9 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                       key={p}
                       type="button"
                       onClick={() => addProject(p)}
-                      className="text-[11px] px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1 text-left cursor-pointer truncate max-w-full"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 text-slate-200 dark:text-slate-200 light:text-slate-800 border border-slate-700 dark:border-slate-700 light:border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer font-medium shadow-xs truncate max-w-full"
                     >
-                      <Plus className="w-2.5 h-2.5 shrink-0" />
+                      <Plus className="w-3 h-3 shrink-0" />
                       <span className="truncate">{p}</span>
                     </button>
                   ))}
@@ -304,20 +306,21 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
 
             {/* Simulated Certifications */}
             <div className="space-y-2">
-              <span className="text-xs font-semibold text-slate-300 block">
+              <span className="text-xs font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 block">
                 3. Add Industry Certification ({scenario.addedCertifications.length})
               </span>
               <div className="space-y-1.5">
                 {scenario.addedCertifications.map((c) => (
                   <div
                     key={c}
-                    className="flex items-center justify-between p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300"
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/15 dark:bg-amber-500/15 light:bg-amber-50 border border-amber-500/30 dark:border-amber-500/30 light:border-amber-200 text-xs text-amber-200 dark:text-amber-200 light:text-amber-900 font-medium"
                   >
                     <span className="truncate">{c}</span>
                     <button
                       type="button"
                       onClick={() => removeCert(c)}
-                      className="text-amber-400 hover:text-white p-1"
+                      className="text-amber-400 hover:text-white dark:hover:text-white light:hover:text-amber-950 p-1 transition-colors cursor-pointer"
+                      title="Remove certification"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -325,7 +328,7 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                 ))}
               </div>
 
-              <div className="flex flex-wrap gap-1 pt-1">
+              <div className="flex flex-wrap gap-1.5 pt-1">
                 {POPULAR_CERT_SUGGESTIONS.filter((c) => !scenario.addedCertifications.includes(c))
                   .slice(0, 2)
                   .map((c) => (
@@ -333,9 +336,9 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                       key={c}
                       type="button"
                       onClick={() => addCert(c)}
-                      className="text-[11px] px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors flex items-center gap-1 text-left cursor-pointer truncate max-w-full"
+                      className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 text-slate-200 dark:text-slate-200 light:text-slate-800 border border-slate-700 dark:border-slate-700 light:border-slate-300 transition-colors flex items-center gap-1.5 cursor-pointer font-medium shadow-xs truncate max-w-full"
                     >
-                      <Plus className="w-2.5 h-2.5 shrink-0" />
+                      <Plus className="w-3 h-3 shrink-0" />
                       <span className="truncate">{c}</span>
                     </button>
                   ))}
@@ -343,9 +346,9 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
             </div>
 
             {/* DSA Slider */}
-            <div className="space-y-2 pt-2 border-t border-slate-800">
+            <div className="space-y-2 pt-2 border-t border-slate-800 dark:border-slate-800 light:border-slate-200">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-300">
+                <span className="font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700">
                   4. Simulated LeetCode / DSA Problems Solved:
                 </span>
                 <span className="font-bold text-amber-400">+{scenario.improvedDsaCount} Problems</span>
@@ -367,10 +370,10 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
             </div>
 
             {/* Portfolio Polish Toggles */}
-            <div className="space-y-2.5 pt-2 border-t border-slate-800 text-xs">
-              <span className="font-semibold text-slate-300 block">5. Portfolio Polish Toggles:</span>
+            <div className="space-y-2.5 pt-2 border-t border-slate-800 dark:border-slate-800 light:border-slate-200 text-xs">
+              <span className="font-semibold text-slate-300 dark:text-slate-300 light:text-slate-700 block">5. Portfolio Polish Toggles:</span>
 
-              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-50 border border-slate-800 cursor-pointer">
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-100 border border-slate-800 dark:border-slate-800 light:border-slate-300 hover:border-slate-700 dark:hover:border-slate-700 light:hover:border-slate-400 transition-colors cursor-pointer">
                 <input
                   type="checkbox"
                   checked={scenario.improvedGithub}
@@ -380,13 +383,13 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                       improvedGithub: e.target.checked,
                     }))
                   }
-                  className="rounded accent-amber-500 w-4 h-4"
+                  className="rounded accent-amber-500 w-4 h-4 cursor-pointer"
                 />
-                <Github className="w-4 h-4 text-slate-400" />
-                <span className="text-slate-300">Overhaul GitHub READMEs, commits, and star showcases</span>
+                <Github className="w-4 h-4 text-slate-300 dark:text-slate-300 light:text-slate-700 shrink-0" />
+                <span className="text-slate-300 dark:text-slate-300 light:text-slate-800">Overhaul GitHub READMEs, commits, and star showcases</span>
               </label>
 
-              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-50 border border-slate-800 cursor-pointer">
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-100 border border-slate-800 dark:border-slate-800 light:border-slate-300 hover:border-slate-700 dark:hover:border-slate-700 light:hover:border-slate-400 transition-colors cursor-pointer">
                 <input
                   type="checkbox"
                   checked={scenario.improvedLinkedin}
@@ -396,13 +399,13 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                       improvedLinkedin: e.target.checked,
                     }))
                   }
-                  className="rounded accent-amber-500 w-4 h-4"
+                  className="rounded accent-amber-500 w-4 h-4 cursor-pointer"
                 />
-                <Linkedin className="w-4 h-4 text-[#0077b5]" />
-                <span className="text-slate-300">Optimize LinkedIn Headline, About, & Recommendations</span>
+                <Linkedin className="w-4 h-4 text-[#0077b5] shrink-0" />
+                <span className="text-slate-300 dark:text-slate-300 light:text-slate-800">Optimize LinkedIn Headline, About, & Recommendations</span>
               </label>
 
-              <label className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-50 border border-slate-800 cursor-pointer">
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/40 dark:bg-slate-950/40 light:bg-slate-100 border border-slate-800 dark:border-slate-800 light:border-slate-300 hover:border-slate-700 dark:hover:border-slate-700 light:hover:border-slate-400 transition-colors cursor-pointer">
                 <input
                   type="checkbox"
                   checked={scenario.improvedResume}
@@ -412,10 +415,10 @@ export const CareerSimulator: React.FC<CareerSimulatorProps> = ({ isDemo = false
                       improvedResume: e.target.checked,
                     }))
                   }
-                  className="rounded accent-amber-500 w-4 h-4"
+                  className="rounded accent-amber-500 w-4 h-4 cursor-pointer"
                 />
-                <FileText className="w-4 h-4 text-emerald-400" />
-                <span className="text-slate-300">Refactor Resume to Action-Verb STAR Metrics</span>
+                <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-slate-300 dark:text-slate-300 light:text-slate-800">Refactor Resume to Action-Verb STAR Metrics</span>
               </label>
             </div>
           </Card>

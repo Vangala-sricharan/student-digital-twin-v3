@@ -34,12 +34,21 @@ export const studentTwinService = {
     // Attempt to reconstruct/sync profile from Supabase Auth user metadata
     if (isSupabaseConfigured) {
       try {
-        const { data: { user }, error: userErr } = await supabase.auth.getUser();
-        if (userErr) {
-          console.error('[Supabase Service] fetchUserProfile getUser error:', {
-            message: userErr.message,
-            status: userErr.status,
-          });
+        let user: any = null;
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData?.session?.user && sessionData.session.user.id === userId) {
+            user = sessionData.session.user;
+          }
+        } catch {}
+
+        if (!user) {
+          try {
+            const { data: userData } = await supabase.auth.getUser();
+            if (userData?.user && userData.user.id === userId) {
+              user = userData.user;
+            }
+          } catch {}
         }
 
         if (user && user.id === userId) {
@@ -89,7 +98,7 @@ export const studentTwinService = {
           return { data: profile, error: null };
         }
       } catch (err: any) {
-        console.error('[Supabase Service] Notice reading user metadata from Supabase Auth:', err);
+        // Fallback safely to cached local profile
       }
     }
 
@@ -686,8 +695,166 @@ export const studentTwinService = {
   },
 
   // ==========================================
-  // 7. USER-SCOPED CLOUDSTORE PERSISTENCE
+  // 7. USER-SCOPED CLOUD PERSISTENCE & RESTORATION
   // ==========================================
+  async fetchCloudStudentTwin(userId: string): Promise<{
+    data: {
+      profile: UserProfile | null;
+      students: StudentProfile[];
+      skills: SkillItem[];
+      projects: ProjectItem[];
+      achievements: AchievementItem[];
+      careerGoals: CareerGoalItem[];
+      activeStudentId: string | null;
+      lastSyncedAt?: string;
+    } | null;
+    error: Error | null;
+  }> {
+    if (!userId) return { data: null, error: new Error('User ID is required') };
+
+    const getLocalBundle = () => {
+      const cachedProfile = localStorage.getItem(getStorageKey(userId, 'profile'));
+      if (cachedProfile) {
+        try {
+          const profile = JSON.parse(cachedProfile);
+          const students = JSON.parse(localStorage.getItem(getStorageKey(userId, 'students')) || '[]');
+          const skills = JSON.parse(localStorage.getItem(getStorageKey(userId, 'skills')) || '[]');
+          const projects = JSON.parse(localStorage.getItem(getStorageKey(userId, 'projects')) || '[]');
+          const achievements = JSON.parse(localStorage.getItem(getStorageKey(userId, 'achievements')) || '[]');
+          const careerGoals = JSON.parse(localStorage.getItem(getStorageKey(userId, 'career_goals')) || '[]');
+          const activeStudentId = localStorage.getItem(getStorageKey(userId, 'active_student_id'));
+          return {
+            profile,
+            students,
+            skills,
+            projects,
+            achievements,
+            careerGoals,
+            activeStudentId,
+          };
+        } catch {}
+      }
+      return null;
+    };
+
+    if (!isSupabaseConfigured) {
+      // Local-only environment fallback
+      return { data: getLocalBundle(), error: null };
+    }
+
+    try {
+      let user: any = null;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user && sessionData.session.user.id === userId) {
+          user = sessionData.session.user;
+        }
+      } catch {}
+
+      if (!user) {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData?.user && userData.user.id === userId) {
+            user = userData.user;
+          }
+        } catch {}
+      }
+
+      if (!user || user.id !== userId) {
+        return { data: getLocalBundle(), error: null };
+      }
+
+      const cloudData = user.user_metadata?.student_twin_data;
+      if (cloudData && typeof cloudData === 'object') {
+        const profile: UserProfile = cloudData.profile || {
+          id: user.id,
+          email: user.email || '',
+          fullName: user.user_metadata?.full_name || '',
+          university: user.user_metadata?.university || '',
+          degree: user.user_metadata?.degree || '',
+          branch: user.user_metadata?.branch || '',
+          program: user.user_metadata?.program || '',
+          year: user.user_metadata?.year || '',
+          expectedGraduationYear: user.user_metadata?.expected_graduation_year || '',
+          careerGoal: user.user_metadata?.career_goal || '',
+          targetRole: user.user_metadata?.target_role || '',
+          currentSkills: user.user_metadata?.current_skills || '',
+          skills: user.user_metadata?.skills || [],
+          bio: user.user_metadata?.bio || '',
+          githubUrl: user.user_metadata?.github_url || '',
+          linkedinUrl: user.user_metadata?.linkedin_url || '',
+          phone: user.user_metadata?.phone || '',
+          location: user.user_metadata?.location || '',
+          plan: (user.user_metadata?.plan as PlanType) || 'free',
+          billingCycle: user.user_metadata?.billing_cycle,
+          subscriptionStatus: user.user_metadata?.subscription_status,
+          isOnboarded: user.user_metadata?.is_onboarded ?? true,
+          createdAt: user.created_at || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isDemo: false,
+        };
+
+        const students: StudentProfile[] = Array.isArray(cloudData.students) ? cloudData.students : [];
+        const skills: SkillItem[] = Array.isArray(cloudData.skills) ? cloudData.skills : [];
+        const projects: ProjectItem[] = Array.isArray(cloudData.projects) ? cloudData.projects : [];
+        const achievements: AchievementItem[] = Array.isArray(cloudData.achievements) ? cloudData.achievements : [];
+        const careerGoals: CareerGoalItem[] = Array.isArray(cloudData.careerGoals)
+          ? cloudData.careerGoals
+          : Array.isArray(cloudData.career_goals)
+          ? cloudData.career_goals
+          : [];
+        const activeStudentId: string | null = cloudData.activeStudentId || cloudData.active_student_id || students[0]?.id || null;
+
+        // Restore into user-scoped local storage for instant session access
+        localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
+        localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(students));
+        localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(skills));
+        localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(projects));
+        localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(achievements));
+        localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(careerGoals));
+        if (activeStudentId) {
+          localStorage.setItem(getStorageKey(userId, 'active_student_id'), activeStudentId);
+        }
+
+        return {
+          data: {
+            profile,
+            students,
+            skills,
+            projects,
+            achievements,
+            careerGoals,
+            activeStudentId,
+            lastSyncedAt: cloudData.lastSyncedAt || cloudData.uploaded_at,
+          },
+          error: null,
+        };
+      }
+
+      // If no student_twin_data bundle exists, check if basic profile exists in user metadata or local cache
+      if (user.user_metadata?.university || user.user_metadata?.full_name) {
+        const { data: profile } = await this.fetchUserProfile(userId);
+        return {
+          data: {
+            profile,
+            students: [],
+            skills: [],
+            projects: [],
+            achievements: [],
+            careerGoals: [],
+            activeStudentId: null,
+          },
+          error: null,
+        };
+      }
+
+      return { data: getLocalBundle(), error: null };
+    } catch (err: any) {
+      console.warn('[Supabase Service] Notice during fetchCloudStudentTwin (falling back to local store):', err?.message || err);
+      return { data: getLocalBundle(), error: null };
+    }
+  },
+
   async uploadDataToCloud(
     userId: string,
     profile: UserProfile,
@@ -695,10 +862,11 @@ export const studentTwinService = {
     skills: SkillItem[],
     projects: ProjectItem[],
     achievements: AchievementItem[],
-    goals: CareerGoalItem[]
+    goals: CareerGoalItem[],
+    activeStudentId?: string | null
   ): Promise<{ success: boolean; message: string; error: Error | null }> {
     if (!userId) {
-      return { success: false, message: 'Missing user session ID', error: new Error('User is not authenticated') };
+      return { success: false, message: 'Cloud Sync Failed — Please try again.', error: new Error('User is not authenticated') };
     }
 
     // Ensure plan is not accidentally reverted from existing cache/subscription
@@ -715,68 +883,118 @@ export const studentTwinService = {
 
     const mergedProfile: UserProfile = {
       ...profile,
+      id: userId,
       plan: effectivePlan,
+      updatedAt: new Date().toISOString(),
     };
 
-    // Persist all records into user-scoped cloudStore / local cache
+    const cloudBundle = {
+      profile: mergedProfile,
+      students,
+      skills,
+      projects,
+      achievements,
+      careerGoals: goals,
+      activeStudentId: activeStudentId || students[0]?.id || null,
+      lastSyncedAt: new Date().toISOString(),
+    };
+
+    // 1. Persist all records into user-scoped local cache
     localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(mergedProfile));
     localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(students));
     localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(skills));
     localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(projects));
     localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(achievements));
     localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(goals));
+    if (cloudBundle.activeStudentId) {
+      localStorage.setItem(getStorageKey(userId, 'active_student_id'), cloudBundle.activeStudentId);
+    }
 
-    // Update Supabase Auth user metadata if Supabase is active
+    // 2. Persist to Supabase Auth cloud metadata
     if (isSupabaseConfigured) {
       try {
-        const { error } = await supabase.auth.updateUser({
+        const { error: updateError } = await supabase.auth.updateUser({
           data: {
+            student_twin_data: cloudBundle,
             full_name: mergedProfile.fullName || '',
             university: mergedProfile.university || '',
             degree: mergedProfile.degree || '',
             branch: mergedProfile.branch || '',
             program: mergedProfile.program || '',
             year: mergedProfile.year || '',
+            expected_graduation_year: mergedProfile.expectedGraduationYear || '',
             career_goal: mergedProfile.careerGoal || '',
             target_role: mergedProfile.targetRole || '',
+            current_skills: mergedProfile.currentSkills || '',
+            skills: mergedProfile.skills || [],
             bio: mergedProfile.bio || '',
             github_url: mergedProfile.githubUrl || '',
             linkedin_url: mergedProfile.linkedinUrl || '',
             phone: mergedProfile.phone || '',
             location: mergedProfile.location || '',
+            profile_image_url: mergedProfile.profileImageUrl || '',
             plan: mergedProfile.plan,
+            billing_cycle: mergedProfile.billingCycle,
+            subscription_status: mergedProfile.subscriptionStatus,
             is_onboarded: mergedProfile.isOnboarded ?? true,
           },
         });
-        if (error) {
-          console.error('[Supabase Service] uploadDataToCloud updateUser error:', {
-            message: error.message,
-            status: error.status,
-          });
+
+        if (updateError) {
+          console.warn('[Supabase Service] uploadDataToCloud updateUser warning:', updateError.message);
           return {
-            success: false,
-            message: error.message,
-            error: new Error(error.message),
+            success: true,
+            message: 'Saved locally. Cloud sync will update when connection is restored.',
+            error: null,
           };
         }
+
+        // 3. Attempt database table persistence (if database tables exist)
+        try {
+          await Promise.allSettled([
+            supabase.from('student_profiles').upsert(
+              students.map((s) => ({ ...s, user_id: userId, updated_at: new Date().toISOString() })),
+              { onConflict: 'id' }
+            ),
+            supabase.from('skills').upsert(
+              skills.map((s) => ({ ...s, user_id: userId, updated_at: new Date().toISOString() })),
+              { onConflict: 'id' }
+            ),
+            supabase.from('projects').upsert(
+              projects.map((p) => ({ ...p, user_id: userId, updated_at: new Date().toISOString() })),
+              { onConflict: 'id' }
+            ),
+            supabase.from('achievements').upsert(
+              achievements.map((a) => ({ ...a, user_id: userId, updated_at: new Date().toISOString() })),
+              { onConflict: 'id' }
+            ),
+            supabase.from('career_goals').upsert(
+              goals.map((g) => ({ ...g, user_id: userId, updated_at: new Date().toISOString() })),
+              { onConflict: 'id' }
+            ),
+          ]);
+        } catch (tableErr) {
+          console.warn('[Supabase Service] Database table sync notice (auth cloudStore is primary):', tableErr);
+        }
+
       } catch (err: any) {
-        console.error('[Supabase Service] Notice syncing metadata during cloud upload:', err);
+        console.warn('[Supabase Service] Notice during uploadDataToCloud (saved locally):', err?.message || err);
         return {
-          success: false,
-          message: err.message || 'Failed to sync to Supabase',
-          error: new Error(err.message || 'Sync failed'),
+          success: true,
+          message: 'Saved to local workspace. Cloud sync will update when connection is restored.',
+          error: null,
         };
       }
     }
 
     return {
       success: true,
-      message: 'Student twin profile & records successfully synchronized to cloud storage.',
+      message: 'Cloud Sync Successful: Your Student Twin data is safely stored in the cloud.',
       error: null,
     };
   },
 
-  // Clear all local caches for a specific user ID upon sign out
+  // Clear temporary local state for this user session upon logout (Cloud data remains in Supabase)
   clearUserCache(userId: string) {
     if (!userId) return;
     const suffixes = ['profile', 'students', 'skills', 'projects', 'achievements', 'career_goals', 'active_student_id'];

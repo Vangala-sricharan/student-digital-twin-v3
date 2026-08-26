@@ -67,8 +67,11 @@ RETURN STRICT JSON ONLY matching this exact structure:
     }
 
     const response = await callGeminiWithRetry({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents,
+      config: {
+        responseMimeType: 'application/json',
+      },
     });
 
     const parsed = cleanAndParseJSON(response?.text || '{}');

@@ -1,6 +1,14 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { callGeminiWithRetry, cleanAndParseJSON, handleApiError } from '../../_utils/gemini.js';
 
+// Short-term in-memory cache to prevent duplicate external requests during repeated checks
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+const GITHUB_CACHE = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
@@ -8,7 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let evidenceSummary: any = null;
   try {
-    const { githubUrl, userId } = req.body || {};
+    const { githubUrl, userId, bypassCache } = req.body || {};
 
     if (!githubUrl || typeof githubUrl !== 'string' || !githubUrl.trim()) {
       return res.status(400).json({ error: 'GitHub profile or repository URL is required.' });
@@ -38,7 +46,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Step 2: Fetch public evidence via GitHub API
+    const cacheKey = username.toLowerCase();
+    if (!bypassCache) {
+      const cached = GITHUB_CACHE.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        return res.status(200).json(cached.data);
+      }
+    }
+
+    // Step 2: Fetch public evidence via GitHub API concurrently in parallel
     let userProfileData: any = null;
     let reposData: any[] = [];
     let eventsData: any[] = [];
@@ -49,7 +65,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         Accept: 'application/vnd.github.v3+json',
       };
 
-      const userRes = await fetch(`https://api.github.com/users/${username}`, { headers });
+      const [userRes, reposRes, eventsRes] = await Promise.all([
+        fetch(`https://api.github.com/users/${username}`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        }),
+        fetch(`https://api.github.com/users/${username}/repos?sort=pushed&per_page=20`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => null),
+        fetch(`https://api.github.com/users/${username}/events/public?per_page=20`, {
+          headers,
+          signal: AbortSignal.timeout(4000),
+        }).catch(() => null),
+      ]);
 
       if (userRes.status === 404) {
         return res.status(404).json({ error: `GitHub profile "@${username}" was not found on GitHub. Please check username spelling.` });
@@ -65,16 +94,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       userProfileData = await userRes.json();
 
-      // Repositories
-      const reposRes = await fetch(`https://api.github.com/users/${username}/repos?sort=pushed&per_page=30`, { headers });
-      if (reposRes.ok) {
-        reposData = await reposRes.json();
+      if (reposRes && reposRes.ok) {
+        reposData = await reposRes.json().catch(() => []);
       }
 
-      // Public events (activity / commit cadence)
-      const eventsRes = await fetch(`https://api.github.com/users/${username}/events/public?per_page=30`, { headers });
-      if (eventsRes.ok) {
-        eventsData = await eventsRes.json();
+      if (eventsRes && eventsRes.ok) {
+        eventsData = await eventsRes.json().catch(() => []);
       }
     } catch (apiErr: any) {
       console.warn('GitHub API network error:', apiErr);
@@ -89,7 +114,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const originalRepos = (reposData || []).filter((r: any) => !r.fork);
     const forkedRepos = (reposData || []).filter((r: any) => r.fork);
 
-    // Inspect top repositories and check README availability
+    // Inspect top repositories and check README availability in parallel with strict fast timeouts
     const topReposSample = (reposData || []).slice(0, 10);
     const topRepositoriesWithReadme = await Promise.all(
       topReposSample.map(async (r: any, idx: number) => {
@@ -103,7 +128,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         let hasDetailedReadme = false;
         let readmeLength = 0;
 
-        // Fetch README for first 3 top repos
+        // Fetch README for first 3 top repos in parallel with 2s timeout
         if (idx < 3) {
           try {
             const readmeRes = await fetch(`https://api.github.com/repos/${username}/${r.name}/readme`, {
@@ -111,6 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 'User-Agent': 'StudentDigitalTwinOS-V3',
                 Accept: 'application/vnd.github.v3+json',
               },
+              signal: AbortSignal.timeout(2000),
             });
             if (readmeRes.ok) {
               const readmeJson: any = await readmeRes.json();
@@ -233,8 +259,11 @@ RETURN STRICT JSON ONLY:
 }`;
 
     const response = await callGeminiWithRetry({
-      model: 'gemini-3.7-flash',
+      model: 'gemini-2.5-flash',
       contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      },
     });
 
     const parsed = cleanAndParseJSON(response?.text || '{}');
@@ -252,7 +281,7 @@ RETURN STRICT JSON ONLY:
     const calculatedTotal = Object.values(categoryScores).reduce((a, b) => a + b, 0);
     const overallScore = Math.min(100, Math.max(0, Number(parsed.overallScore) || calculatedTotal));
 
-    return res.status(200).json({
+    const resultPayload = {
       id: `gh_ana_${username}_${Date.now()}`,
       userId: userId || 'anonymous',
       githubUrl: evidenceSummary.profileUrl,
@@ -265,7 +294,11 @@ RETURN STRICT JSON ONLY:
       weaknesses: Array.isArray(parsed.weaknesses) ? parsed.weaknesses : [],
       highestImpactImprovements: Array.isArray(parsed.highestImpactImprovements) ? parsed.highestImpactImprovements : [],
       recruiterRecommendations: Array.isArray(parsed.recruiterRecommendations) ? parsed.recruiterRecommendations : [],
-    });
+    };
+
+    GITHUB_CACHE.set(cacheKey, { data: resultPayload, timestamp: Date.now() });
+
+    return res.status(200).json(resultPayload);
   } catch (error: any) {
     return handleApiError(res, error, 'Failed to analyze GitHub profile', {
       evidenceSummary: evidenceSummary || undefined,

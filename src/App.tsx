@@ -129,6 +129,7 @@ const MainAppContent: React.FC = () => {
             onTabChange={setActiveTab}
             onLogout={exitDemo}
             isDemo
+            userProfile={demoUserProfile}
           />
 
           <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
@@ -247,6 +248,7 @@ const MainAppContent: React.FC = () => {
             activeTab={activeTab}
             onTabChange={setActiveTab}
             onLogout={signOut}
+            userProfile={userProfile}
           />
 
           <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
