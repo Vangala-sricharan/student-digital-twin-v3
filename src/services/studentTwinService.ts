@@ -83,7 +83,8 @@ export const studentTwinService = {
             linkedinUrl: user.user_metadata?.linkedin_url || user.user_metadata?.linkedinUrl || cachedProfile?.linkedinUrl || '',
             phone: user.user_metadata?.phone || cachedProfile?.phone || '',
             location: user.user_metadata?.location || cachedProfile?.location || '',
-            profileImageUrl: user.user_metadata?.profile_image_url || cachedProfile?.profileImageUrl || '',
+            profileImageUrl: user.user_metadata?.profile_image_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || cachedProfile?.profileImageUrl || cachedProfile?.avatarUrl || '',
+            portfolio: user.user_metadata?.portfolio_data || cachedProfile?.portfolio,
             plan: rawPlan as PlanType,
             billingCycle,
             subscriptionStatus,
@@ -148,7 +149,9 @@ export const studentTwinService = {
       linkedinUrl: profile.linkedinUrl || '',
       phone: profile.phone || '',
       location: profile.location || '',
-      profileImageUrl: profile.profileImageUrl || '',
+      profileImageUrl: profile.profileImageUrl || profile.avatarUrl || (cached ? (JSON.parse(cached).profileImageUrl || JSON.parse(cached).avatarUrl) : '') || '',
+      avatarUrl: profile.avatarUrl || profile.profileImageUrl || (cached ? (JSON.parse(cached).avatarUrl || JSON.parse(cached).profileImageUrl) : '') || '',
+      portfolio: profile.portfolio || (cached ? JSON.parse(cached).portfolio : undefined),
       plan: profile.plan || existingPlan,
       billingCycle: profile.billingCycle || existingCycle,
       subscriptionStatus: profile.subscriptionStatus || existingSubStatus,
@@ -183,6 +186,9 @@ export const studentTwinService = {
             linkedin_url: formattedProfile.linkedinUrl,
             phone: formattedProfile.phone,
             location: formattedProfile.location,
+            profile_image_url: formattedProfile.profileImageUrl || '',
+            avatar_url: formattedProfile.avatarUrl || formattedProfile.profileImageUrl || '',
+            portfolio_data: formattedProfile.portfolio,
             plan: formattedProfile.plan,
             billing_cycle: formattedProfile.billingCycle,
             subscription_status: formattedProfile.subscriptionStatus,
@@ -765,6 +771,7 @@ export const studentTwinService = {
       }
 
       const cloudData = user.user_metadata?.student_twin_data;
+      const cachedProfileStr = localStorage.getItem(getStorageKey(userId, 'profile'));
       if (cloudData && typeof cloudData === 'object') {
         const profile: UserProfile = cloudData.profile || {
           id: user.id,
@@ -785,6 +792,8 @@ export const studentTwinService = {
           linkedinUrl: user.user_metadata?.linkedin_url || '',
           phone: user.user_metadata?.phone || '',
           location: user.user_metadata?.location || '',
+          profileImageUrl: cloudData.profile?.profileImageUrl || user.user_metadata?.profile_image_url || (cachedProfileStr ? JSON.parse(cachedProfileStr)?.profileImageUrl : '') || '',
+          portfolio: cloudData.profile?.portfolio || user.user_metadata?.portfolio_data || (cachedProfileStr ? JSON.parse(cachedProfileStr)?.portfolio : undefined),
           plan: (user.user_metadata?.plan as PlanType) || 'free',
           billingCycle: user.user_metadata?.billing_cycle,
           subscriptionStatus: user.user_metadata?.subscription_status,
@@ -869,21 +878,26 @@ export const studentTwinService = {
       return { success: false, message: 'Cloud Sync Failed — Please try again.', error: new Error('User is not authenticated') };
     }
 
-    // Ensure plan is not accidentally reverted from existing cache/subscription
-    let effectivePlan = profile.plan || 'free';
+    // Ensure plan and profile image are not accidentally reverted from existing cache
+    let existingCached: Partial<UserProfile> = {};
     const cachedProfileStr = localStorage.getItem(getStorageKey(userId, 'profile'));
     if (cachedProfileStr) {
       try {
-        const cached = JSON.parse(cachedProfileStr);
-        if (cached.plan && cached.plan !== 'free' && (!profile.plan || profile.plan === 'free')) {
-          effectivePlan = cached.plan;
-        }
+        existingCached = JSON.parse(cachedProfileStr);
       } catch {}
     }
 
+    let effectivePlan = profile.plan || existingCached.plan || 'free';
+    const effectiveProfileImage = profile.profileImageUrl || profile.avatarUrl || existingCached.profileImageUrl || existingCached.avatarUrl || '';
+    const effectivePortfolio = profile.portfolio || existingCached.portfolio;
+
     const mergedProfile: UserProfile = {
+      ...existingCached,
       ...profile,
       id: userId,
+      profileImageUrl: effectiveProfileImage,
+      avatarUrl: effectiveProfileImage,
+      portfolio: effectivePortfolio,
       plan: effectivePlan,
       updatedAt: new Date().toISOString(),
     };
@@ -933,6 +947,7 @@ export const studentTwinService = {
             phone: mergedProfile.phone || '',
             location: mergedProfile.location || '',
             profile_image_url: mergedProfile.profileImageUrl || '',
+            portfolio_data: mergedProfile.portfolio,
             plan: mergedProfile.plan,
             billing_cycle: mergedProfile.billingCycle,
             subscription_status: mergedProfile.subscriptionStatus,

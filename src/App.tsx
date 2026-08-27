@@ -58,6 +58,7 @@ import { AiCareerAssistant } from './components/dashboard/AiCareerAssistant';
 import { ProjectAnalyzer } from './components/dashboard/ProjectAnalyzer';
 import { GitHubReadiness } from './components/dashboard/GitHubReadiness';
 import { LinkedInReadiness } from './components/dashboard/LinkedInReadiness';
+import { PortfolioBuilder } from './components/dashboard/PortfolioBuilder';
 import { ResumeBuilder } from './components/dashboard/ResumeBuilder';
 import { ResumeAnalyzer } from './components/dashboard/ResumeAnalyzer';
 import { SyllabusAnalyzer } from './components/dashboard/SyllabusAnalyzer';
@@ -164,6 +165,11 @@ const MainAppContent: React.FC = () => {
             {activeTab === 'assistant' && (
               <ErrorBoundary featureName="AI Career Assistant">
                 <AiCareerAssistant isDemo />
+              </ErrorBoundary>
+            )}
+            {activeTab === 'portfolio' && (
+              <ErrorBoundary featureName="AI Portfolio Builder">
+                <PortfolioBuilder isDemo />
               </ErrorBoundary>
             )}
             {activeTab === 'project-analyzer' && (
@@ -279,6 +285,11 @@ const MainAppContent: React.FC = () => {
             {activeTab === 'assistant' && (
               <ErrorBoundary featureName="AI Career Assistant">
                 <AiCareerAssistant />
+              </ErrorBoundary>
+            )}
+            {activeTab === 'portfolio' && (
+              <ErrorBoundary featureName="AI Portfolio Builder">
+                <PortfolioBuilder />
               </ErrorBoundary>
             )}
             {activeTab === 'project-analyzer' && (

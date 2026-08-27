@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   User,
   GraduationCap,
@@ -16,6 +16,9 @@ import {
   Briefcase,
   UploadCloud,
   RefreshCw,
+  Camera,
+  Image,
+  Trash2,
 } from 'lucide-react';
 import { UserProfile } from '../../types';
 import { Card } from '../common/Card';
@@ -45,6 +48,8 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
 
   const profile = isDemo ? propUserProfile : ctxUserProfile || propUserProfile;
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [formData, setFormData] = useState({
     fullName: profile?.fullName || '',
     university: profile?.university || '',
@@ -58,6 +63,7 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
     linkedinUrl: profile?.linkedinUrl || '',
     phone: profile?.phone || '',
     location: profile?.location || '',
+    profileImageUrl: profile?.profileImageUrl || profile?.avatarUrl || '',
   });
 
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -78,9 +84,68 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
         linkedinUrl: profile.linkedinUrl || '',
         phone: profile.phone || '',
         location: profile.location || '',
+        profileImageUrl: profile.profileImageUrl || profile.avatarUrl || '',
       });
     }
   }, [profile]);
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setStatusMessage('Please select a valid image file (PNG, JPG, WebP).');
+      setSaveStatus('error');
+      return;
+    }
+
+    // Read and compress image
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 320;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          setFormData((prev) => ({
+            ...prev,
+            profileImageUrl: compressedDataUrl,
+          }));
+          setStatusMessage('Profile photo updated. Click Save Profile to sync to cloud.');
+          setSaveStatus('idle');
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setFormData((prev) => ({ ...prev, profileImageUrl: '' }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +178,10 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
   };
 
   const handleManualUpload = async () => {
-    await uploadDataToCloud();
+    await uploadDataToCloud({
+      ...formData,
+      program: `${formData.degree} in ${formData.branch}`,
+    });
   };
 
   const degreeOptions = [
@@ -205,16 +273,69 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Identity Card */}
         <Card className="p-6 flex flex-col items-center text-center">
-          <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold font-mono shadow-xl shadow-blue-500/20 mb-4">
-            {formData.fullName
-              ? (formData.fullName || 'ST')
-                  .split(' ')
-                  .filter(Boolean)
-                  .map((n) => n[0])
-                  .join('')
-                  .substring(0, 2)
-                  .toUpperCase() || 'ST'
-              : 'ST'}
+          {/* Avatar Container with Upload Overlay */}
+          <div className="relative group mb-4">
+            {formData.profileImageUrl ? (
+              <img
+                src={formData.profileImageUrl}
+                alt={formData.fullName || 'Student Avatar'}
+                className="w-24 h-24 rounded-2xl object-cover border-2 border-blue-500/40 shadow-xl shadow-blue-500/20"
+              />
+            ) : (
+              <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold font-mono shadow-xl shadow-blue-500/20">
+                {formData.fullName
+                  ? (formData.fullName || 'ST')
+                      .split(' ')
+                      .filter(Boolean)
+                      .map((n) => n[0])
+                      .join('')
+                      .substring(0, 2)
+                      .toUpperCase() || 'ST'
+                  : 'ST'}
+              </div>
+            )}
+
+            {/* Photo Action Overlay / Button */}
+            <button
+              id="profile-photo-upload-trigger"
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="absolute -bottom-2 -right-2 p-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow-lg border border-white/20 transition-all cursor-pointer"
+              title="Upload / Change Profile Photo"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoUpload}
+            />
+          </div>
+
+          {/* Photo Actions Row */}
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-[11px] text-blue-400 hover:underline font-medium"
+            >
+              {formData.profileImageUrl ? 'Change Photo' : 'Upload Photo'}
+            </button>
+            {formData.profileImageUrl && (
+              <>
+                <span className="text-slate-600 text-xs">•</span>
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="text-[11px] text-rose-400 hover:underline font-medium"
+                >
+                  Remove
+                </button>
+              </>
+            )}
           </div>
 
           <h2 className="text-lg font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">

@@ -15,6 +15,7 @@ import linkedinAnalyzeHandler from './api/ai/linkedin/analyze.ts';
 import internshipAnalyzeHandler from './api/ai/internship/analyze.ts';
 import roadmapGenerateHandler from './api/ai/roadmap/generate.ts';
 import simulatorRunHandler from './api/ai/simulator/run.ts';
+import portfolioGenerateHandler from './api/ai/portfolio/generate.ts';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.all('/api/ai/linkedin/analyze', (req, res) => linkedinAnalyzeHandler(req as 
 app.all('/api/ai/internship/analyze', (req, res) => internshipAnalyzeHandler(req as any, res as any));
 app.all('/api/ai/roadmap/generate', (req, res) => roadmapGenerateHandler(req as any, res as any));
 app.all('/api/ai/simulator/run', (req, res) => simulatorRunHandler(req as any, res as any));
+app.all('/api/ai/portfolio/generate', (req, res) => portfolioGenerateHandler(req as any, res as any));
 
 // ==============================================================================
 // VITE MIDDLEWARE & STATIC SERVING

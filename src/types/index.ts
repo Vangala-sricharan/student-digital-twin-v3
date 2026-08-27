@@ -10,6 +10,7 @@ export type NavTab =
   | 'projects'
   | 'achievements'
   | 'career-goals'
+  | 'portfolio'
   | 'assistant'
   | 'resume-builder'
   | 'resume-analyzer'
@@ -25,6 +26,93 @@ export type NavTab =
   | 'settings';
 
 export type PlanType = 'free' | 'pro' | 'annual' | 'pro_monthly' | 'pro_annual';
+
+export type PortfolioType = 'none' | 'external' | 'generated';
+
+export type PortfolioThemeId = 'modern-minimal' | 'cyber-dark' | 'emerald-tech' | 'editorial-clean';
+
+export interface GeneratedPortfolioHero {
+  name: string;
+  tagline: string;
+  location?: string;
+  bio: string;
+  availableForRoles: string[];
+  avatarUrl?: string;
+}
+
+export interface GeneratedPortfolioAbout {
+  summary: string;
+  education: {
+    university: string;
+    degree: string;
+    branch?: string;
+    year?: string;
+    graduationYear?: string;
+  };
+  careerAspirations?: string;
+}
+
+export interface GeneratedPortfolioSkillGroup {
+  category: string;
+  items: string[];
+}
+
+export interface GeneratedPortfolioProject {
+  id: string;
+  title: string;
+  role: string;
+  description: string;
+  techStack: string[];
+  architecture?: string;
+  githubUrl?: string;
+  liveDemoUrl?: string;
+  highlights?: string[];
+}
+
+export interface GeneratedPortfolioAchievement {
+  id: string;
+  title: string;
+  organization: string;
+  date: string;
+  description: string;
+}
+
+export interface GeneratedPortfolioCareerGoal {
+  targetRole: string;
+  timeline: string;
+  targetCompanies: string[];
+}
+
+export interface GeneratedPortfolioSocialLinks {
+  githubUrl?: string;
+  linkedinUrl?: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface GeneratedPortfolioData {
+  theme: PortfolioThemeId;
+  hero: GeneratedPortfolioHero;
+  about: GeneratedPortfolioAbout;
+  skills: GeneratedPortfolioSkillGroup[];
+  featuredProjects: GeneratedPortfolioProject[];
+  achievements: GeneratedPortfolioAchievement[];
+  careerGoals: GeneratedPortfolioCareerGoal[];
+  socialLinks: GeneratedPortfolioSocialLinks;
+  customSections?: {
+    title: string;
+    content: string;
+  }[];
+  generatedAt: string;
+  lastUpdatedAt: string;
+}
+
+export interface UserPortfolioRecord {
+  portfolioType: PortfolioType;
+  externalUrl?: string;
+  generatedPortfolio?: GeneratedPortfolioData;
+  updatedAt: string;
+}
 
 export interface SubscriptionRecord {
   id?: string;
@@ -70,6 +158,7 @@ export interface UserProfile {
   phone?: string;
   location?: string;
   profileImageUrl?: string;
+  portfolio?: UserPortfolioRecord;
   isOnboarded?: boolean;
   createdAt: string;
   updatedAt?: string;
@@ -140,6 +229,8 @@ export interface ProjectItem {
   role: string;
   difficulty: ProjectDifficulty;
   status: ProjectStatus;
+  metrics?: string[];
+  highlights?: string[];
   createdAt: string;
   updatedAt: string;
 }

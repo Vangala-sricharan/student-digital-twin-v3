@@ -11,6 +11,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
+  Globe,
+  ExternalLink,
+  ArrowRight,
 } from 'lucide-react';
 import { ThemeToggle } from '../common/ThemeToggle';
 import { Badge } from '../common/Badge';
@@ -59,6 +62,20 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
     await uploadDataToCloud();
   };
 
+  const portfolioRecord = userProfile?.portfolio;
+  const externalPortfolioUrl = portfolioRecord?.externalUrl?.trim() || '';
+  const hasExternalUrl = Boolean(externalPortfolioUrl && (externalPortfolioUrl.startsWith('http://') || externalPortfolioUrl.startsWith('https://')));
+  const hasGeneratedPortfolio = Boolean(portfolioRecord?.generatedPortfolio);
+  const hasPortfolio = hasExternalUrl || hasGeneratedPortfolio;
+
+  const handlePortfolioClick = () => {
+    if (hasExternalUrl) {
+      window.open(externalPortfolioUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      onTabChange('portfolio');
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 w-full bg-[#050505]/90 dark:bg-[#050505]/90 light:bg-white/90 backdrop-blur-md border-b border-white/10 dark:border-white/10 light:border-slate-200 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -87,8 +104,36 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             </div>
           </div>
 
-          {/* Right: Cloud Sync, Plan badge, Theme toggle & User Menu */}
+          {/* Right: Portfolio Action, Cloud Sync, Plan badge, Theme toggle & User Menu */}
           <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Dynamic Portfolio Action Button */}
+            <button
+              id="header-portfolio-action-btn"
+              type="button"
+              onClick={handlePortfolioClick}
+              title={
+                hasExternalUrl
+                  ? `Open saved portfolio: ${externalPortfolioUrl}`
+                  : hasGeneratedPortfolio
+                  ? 'View and manage your AI-generated portfolio'
+                  : 'Build or connect your student portfolio'
+              }
+              className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer select-none bg-blue-500/10 hover:bg-blue-500/20 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 light:bg-blue-50 light:hover:bg-blue-100 border-blue-500/30 text-blue-400 dark:text-blue-400 light:text-blue-600"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Portfolio</span>
+              {hasPortfolio ? (
+                <span className="inline-flex items-center gap-1 text-[11px] opacity-90 font-medium">
+                  <span>View</span>
+                  <ExternalLink className="w-3 h-3" />
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-[11px] opacity-90 font-medium">
+                  <span>Build</span>
+                  <ArrowRight className="w-3 h-3" />
+                </span>
+              )}
+            </button>
             {/* Upload to Cloud Button (Production User Sync) */}
             {!isDemo && (
               <button
@@ -260,7 +305,16 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 activeTab === 'profile' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/5'
               }`}
             >
-              My Profile
+              My Foundation
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabSelect('portfolio')}
+              className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium ${
+                activeTab === 'portfolio' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/5'
+              }`}
+            >
+              AI Portfolio (Pro)
             </button>
             <button
               type="button"

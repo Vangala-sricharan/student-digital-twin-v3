@@ -5,7 +5,131 @@ import {
   ProjectItem,
   AchievementItem,
   CareerGoalItem,
+  UserPortfolioRecord,
 } from '../types';
+
+export const DEMO_PORTFOLIO_RECORD: UserPortfolioRecord = {
+  portfolioType: 'external',
+  externalUrl: 'https://vangala-sricharan-portfolio.vercel.app/',
+  generatedPortfolio: {
+    theme: 'modern-minimal',
+    hero: {
+      name: 'Sricharan Vangala',
+      tagline: 'AI/ML Systems Engineer & Generative AI Architect',
+      location: 'Gujarat, India',
+      bio: 'Engineering high-throughput LLM agents, neural search systems, and deterministic career operating systems at Marwadi University.',
+      availableForRoles: ['AI/ML Engineer', 'Generative AI Engineer', 'Backend ML Systems Intern'],
+      avatarUrl: '',
+    },
+    about: {
+      summary: 'Passionate computer science student specializing in Machine Learning and Generative AI systems. Proven experience designing agent architectures, vector indexing pipelines, and real-time career intelligence platforms.',
+      education: {
+        university: 'Marwadi University',
+        degree: 'B.Tech',
+        branch: 'Computer Science & Engineering (AI/ML)',
+        year: '2nd Year',
+        graduationYear: '2027',
+      },
+      careerAspirations: 'Aiming to build foundational AI infrastructures and scalable cognitive agent frameworks at world-class research and technology institutions.',
+    },
+    skills: [
+      {
+        category: 'AI / Machine Learning',
+        items: ['PyTorch', 'Transformers & NLP', 'Generative AI & LLM Agents', 'Scikit-Learn', 'Vector DB & Embeddings'],
+      },
+      {
+        category: 'Software Engineering',
+        items: ['Python', 'TypeScript', 'React 18+', 'FastAPI', 'Node.js', 'Tailwind CSS'],
+      },
+      {
+        category: 'Databases & Cloud',
+        items: ['PostgreSQL & Supabase', 'Vector Databases (Chroma/Pinecone)', 'Docker', 'Git / GitHub CI/CD'],
+      },
+    ],
+    featuredProjects: [
+      {
+        id: 'demo-proj-1',
+        title: 'Student Digital Twin Career OS',
+        role: 'Founder & Lead AI Engineer',
+        description: 'Full-stack AI Career Operating System turning student signals into actionable readiness scoring and gap remediation vectors.',
+        techStack: ['React', 'TypeScript', 'Tailwind CSS', 'FastAPI', 'Supabase', 'Gemini AI', 'Vector DB'],
+        architecture: 'Client-side SPA with resilient serverless AI orchestration, vector cosine similarity matching, and Supabase metadata persistence.',
+        githubUrl: 'https://github.com/Sricharan-Vangala/student-digital-twin',
+        liveDemoUrl: 'https://student-digital-twin.demo',
+        highlights: [
+          'Engineered multi-vector readiness diagnostics calibrated against 500+ tech job specs',
+          'Integrated ATS resume builder and live evidence auditing',
+          'Achieved sub-200ms cached twin state restoration',
+        ],
+      },
+      {
+        id: 'demo-proj-2',
+        title: 'Autonomous LLM Agent Research Suite',
+        role: 'Machine Learning Researcher',
+        description: 'Multi-agent reasoning harness with dynamic tool calling, self-critique loops, and persistent vector memory.',
+        techStack: ['Python', 'PyTorch', 'HuggingFace', 'FastAPI', 'LangChain', 'ChromaDB'],
+        architecture: 'Hierarchical planner-actor architecture with automated evaluator reflection.',
+        githubUrl: 'https://github.com/Sricharan-Vangala/autonomous-llm-agent-suite',
+        highlights: [
+          'Implemented hierarchical memory retrieval with RAG',
+          'Reduced agent task hallucination rates by 42%',
+        ],
+      },
+      {
+        id: 'demo-proj-3',
+        title: 'Neural Code Synthesis & Vulnerability Auditor',
+        role: 'Lead Developer',
+        description: 'AST-aware semantic code auditor flagging security vulnerabilities and performance bottlenecks in real time.',
+        techStack: ['Python', 'Transformers', 'Tree-sitter', 'TypeScript', 'Docker'],
+        architecture: 'Abstract Syntax Tree parser paired with fine-tuned code-BERT models.',
+        githubUrl: 'https://github.com/Sricharan-Vangala/neural-code-auditor',
+        highlights: [
+          'Parsed 100k+ lines of code across 12 languages',
+          'Integrated automated GitHub Actions webhook pipeline',
+        ],
+      },
+    ],
+    achievements: [
+      {
+        id: 'demo-ach-1',
+        title: 'Top 1% Smart India Hackathon Finalist',
+        organization: 'Ministry of Education, Govt. of India',
+        date: '2023-12-18',
+        description: 'Developed an automated curriculum-to-competency translation platform using transformer networks.',
+      },
+      {
+        id: 'demo-ach-2',
+        title: 'Marwadi University Top Tech Innovator Recognition',
+        organization: 'Marwadi University Department of CSE',
+        date: '2024-01-10',
+        description: 'Recognized for exceptional engineering projects in generative AI systems and student career readiness tools.',
+      },
+      {
+        id: 'demo-ach-3',
+        title: 'Deep Learning Specialization Certified',
+        organization: 'DeepLearning.AI & Coursera',
+        date: '2023-11-20',
+        description: 'Mastered neural network architectures, hyperparameter tuning, sequence models, and deep learning math foundations.',
+      },
+    ],
+    careerGoals: [
+      {
+        targetRole: 'AI/ML Engineer',
+        timeline: 'By 2027 (Expected Graduation)',
+        targetCompanies: ['Google', 'DeepMind', 'Microsoft', 'OpenAI', 'Top Tech Startups'],
+      },
+    ],
+    socialLinks: {
+      githubUrl: 'https://github.com/Sricharan-Vangala',
+      linkedinUrl: 'https://linkedin.com/in/sricharan-vangala',
+      email: 'vangalasricharan7@gmail.com',
+      phone: '+91 85209 81574',
+    },
+    generatedAt: '2024-01-15T00:00:00.000Z',
+    lastUpdatedAt: '2024-01-15T00:00:00.000Z',
+  },
+  updatedAt: '2024-01-15T00:00:00.000Z',
+};
 
 export const DEMO_USER_PROFILE: UserProfile = {
   id: 'demo-creator-showcase',
@@ -39,6 +163,7 @@ export const DEMO_USER_PROFILE: UserProfile = {
   location: 'Gujarat, India',
   plan: 'pro',
   subscriptionStatus: 'active',
+  portfolio: DEMO_PORTFOLIO_RECORD,
   isOnboarded: true,
   createdAt: '2024-01-15T00:00:00.000Z',
   isDemo: true,

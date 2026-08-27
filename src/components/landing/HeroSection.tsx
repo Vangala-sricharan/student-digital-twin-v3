@@ -1,5 +1,17 @@
 import React from 'react';
-import { ArrowRight, Play, Cpu, Shield, Sparkles, Database, CheckCircle2 } from 'lucide-react';
+import {
+  ArrowRight,
+  Play,
+  Cpu,
+  Shield,
+  Sparkles,
+  Database,
+  CheckCircle2,
+  Globe,
+  ExternalLink,
+  FolderGit2,
+  Linkedin,
+} from 'lucide-react';
 import { Button } from '../common/Button';
 
 interface HeroSectionProps {
@@ -100,7 +112,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                   </div>
                   <div>
                     <h3 className="font-bold text-base text-slate-100 dark:text-slate-100 light:text-slate-900 flex items-center gap-2">
-                      Vangala Sricharan
+                      Sri charan Vangala
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-500/20 text-blue-400 border border-blue-500/30">
                         DEMO
                       </span>
@@ -108,6 +120,56 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                     <p className="text-xs text-blue-400 font-medium">AI/ML Engineer • 2nd Year B.Tech</p>
                     <p className="text-[11px] text-slate-500">Marwadi University</p>
                   </div>
+                </div>
+              </div>
+
+              {/* Demo External Profiles & Portfolio */}
+              <div className="mb-5 space-y-2">
+                <a
+                  id="hero-demo-portfolio-link"
+                  href="https://vangala-sricharan-portfolio.vercel.app/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 text-xs text-blue-300 hover:text-blue-200 transition-colors group cursor-pointer"
+                >
+                  <span className="flex items-center gap-2 font-semibold">
+                    <Globe className="w-3.5 h-3.5 text-blue-400 group-hover:scale-110 transition-transform" />
+                    <span>Demo Portfolio</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-blue-400 font-bold">
+                    <span>View Portfolio</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </span>
+                </a>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    id="hero-demo-github-link"
+                    href="https://github.com/Sricharan-Vangala"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5 font-medium truncate">
+                      <FolderGit2 className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="truncate">GitHub Profile</span>
+                    </span>
+                    <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
+                  </a>
+
+                  <a
+                    id="hero-demo-linkedin-link"
+                    href="https://linkedin.com/in/sricharan-vangala"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5 font-medium truncate">
+                      <Linkedin className="w-3.5 h-3.5 text-blue-400" />
+                      <span className="truncate">LinkedIn Profile</span>
+                    </span>
+                    <ExternalLink className="w-3 h-3 text-slate-400 shrink-0" />
+                  </a>
                 </div>
               </div>
 

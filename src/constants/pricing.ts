@@ -72,6 +72,7 @@ export const PRICING_PLANS: Record<'free' | 'pro' | 'institutional', PricingPlan
       { text: 'Continuous Role Benchmark simulations', included: true, isProOnly: true },
       { text: 'Priority 30-60-90 day Career Roadmap generator', included: true, isProOnly: true },
       { text: 'Full Project Architecture & Quality Analyzer', included: true, isProOnly: true },
+      { text: 'AI Portfolio Builder (4-file ZIP & live preview)', included: true, isProOnly: true },
       { text: 'Syllabus-to-Industry Alignment Engine', included: true, isProOnly: true },
       { text: 'Internship Placement Readiness evaluation', included: true, isProOnly: true },
       { text: 'Interactive Career Simulator "What-If" Trajectory Engine', included: true, isProOnly: true },

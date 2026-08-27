@@ -19,10 +19,12 @@ import {
   CareerGoalItem,
   SubscriptionRecord,
   OnboardingFormData,
+  UserPortfolioRecord,
 } from '../types';
 
 interface StudentTwinContextType {
   userProfile: UserProfile | null;
+  isPro: boolean;
   studentProfiles: StudentProfile[];
   activeStudentProfile: StudentProfile | null;
   activeStudentProfileId: string | null;
@@ -68,6 +70,7 @@ interface StudentTwinContextType {
   setActiveGoal: (id: string) => Promise<{ success: boolean; error: Error | null }>;
   // Explicit Cloud upload
   uploadDataToCloud: (overrideProfile?: Partial<UserProfile>) => Promise<{ success: boolean; message: string; error: Error | null }>;
+  savePortfolioRecord: (record: UserPortfolioRecord) => Promise<{ success: boolean; error: Error | null }>;
   upgradeSubscription: (targetPlan: 'pro_monthly' | 'pro_annual', billingCycle: 'monthly' | 'annual', transactionRef?: string) => Promise<{ success: boolean; error: Error | null }>;
   refreshData: () => Promise<void>;
 }
@@ -755,6 +758,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       ...userProfile,
       ...(overrideProfile || {}),
     };
+    setUserProfile(profileToUpload);
 
     const res = await studentTwinService.uploadDataToCloud(
       userId,
@@ -885,16 +889,73 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   };
 
+  const savePortfolioRecord = async (record: UserPortfolioRecord): Promise<{ success: boolean; error: Error | null }> => {
+    if (isDemoMode) {
+      const current = userProfile || demoProfile || DEMO_USER_PROFILE;
+      const merged: UserProfile = {
+        ...current,
+        portfolio: record,
+        updatedAt: new Date().toISOString(),
+      };
+      updateDemoProfile(merged);
+      setUserProfile(merged);
+      return { success: true, error: null };
+    }
+
+    if (!userId || !userProfile) {
+      return { success: false, error: new Error('User not found') };
+    }
+
+    try {
+      setIsSyncing(true);
+      const merged: UserProfile = {
+        ...userProfile,
+        portfolio: record,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const { data: saved, error } = await studentTwinService.upsertUserProfile(userId, merged);
+      if (error) throw error;
+
+      setUserProfile(saved || merged);
+      await studentTwinService.uploadDataToCloud(
+        userId,
+        saved || merged,
+        studentProfiles,
+        allSkills,
+        allProjects,
+        allAchievements,
+        allCareerGoals,
+        activeStudentProfileId
+      );
+      setIsSyncing(false);
+      return { success: true, error: null };
+    } catch (err: any) {
+      setIsSyncing(false);
+      return { success: false, error: new Error(err.message || 'Failed to save portfolio') };
+    }
+  };
+
   const refreshData = async () => {
     if (userId) {
       await loadUserData(userId);
     }
   };
 
+  const isPro = Boolean(
+    isDemoMode ||
+    userProfile?.plan === 'pro' ||
+    userProfile?.plan === 'annual' ||
+    userProfile?.plan === 'pro_monthly' ||
+    userProfile?.plan === 'pro_annual' ||
+    (userProfile?.plan as string) === 'campus'
+  );
+
   return (
     <StudentTwinContext.Provider
       value={{
         userProfile,
+        isPro,
         studentProfiles,
         activeStudentProfile,
         activeStudentProfileId,
@@ -934,6 +995,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         deleteCareerGoal,
         setActiveGoal,
         uploadDataToCloud,
+        savePortfolioRecord,
         upgradeSubscription,
         refreshData,
       }}

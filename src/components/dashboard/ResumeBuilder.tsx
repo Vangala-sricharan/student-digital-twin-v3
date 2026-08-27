@@ -36,7 +36,8 @@ interface ResumeBuilderProps {
 
 export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({ isDemo = false }) => {
   const { user } = useAuth();
-  const { activeStudentProfile, skills, projects, achievements } = useStudentTwin();
+  const { userProfile, activeStudentProfile, skills, projects, achievements } = useStudentTwin();
+  const profilePhoto = userProfile?.profileImageUrl || userProfile?.avatarUrl;
 
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
@@ -580,60 +581,73 @@ export const ResumeBuilder: React.FC<ResumeBuilderProps> = ({ isDemo = false }) 
             className="p-8 sm:p-12 bg-white text-slate-900 border border-slate-200 dark:bg-[#0c0e15] dark:text-slate-100 dark:border-slate-800 rounded-2xl shadow-xl dark:shadow-2xl font-serif transition-colors select-text"
           >
             {/* Header */}
-            <div className="text-center border-b-2 border-slate-900 dark:border-slate-700 pb-4 space-y-1">
-              <h1 className="text-2xl sm:text-3xl font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 font-sans">
-                {resumeData.fullName}
-              </h1>
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 font-sans">{resumeData.headline}</p>
-              <div className="flex flex-wrap justify-center items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-400 font-sans pt-1">
-                <span>{resumeData.email}</span>
-                <span>•</span>
-                <span>{resumeData.phone}</span>
-                <span>•</span>
-                <span>{resumeData.location}</span>
-                {resumeData.githubUrl && (
-                  <>
-                    <span>•</span>
-                    <a
-                      href={resumeData.githubUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                    >
-                      <Github className="w-3 h-3" />
-                      <span>{resumeData.githubUrl.replace('https://', '')}</span>
-                    </a>
-                  </>
-                )}
-                {resumeData.linkedinUrl && (
-                  <>
-                    <span>•</span>
-                    <a
-                      href={resumeData.linkedinUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                    >
-                      <Linkedin className="w-3 h-3" />
-                      <span>{resumeData.linkedinUrl.replace('https://', '')}</span>
-                    </a>
-                  </>
-                )}
-                {resumeData.portfolioUrl && (
-                  <>
-                    <span>•</span>
-                    <a
-                      href={resumeData.portfolioUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
-                    >
-                      <Globe className="w-3 h-3" />
-                      <span>{resumeData.portfolioUrl.replace('https://', '')}</span>
-                    </a>
-                  </>
-                )}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b-2 border-slate-900 dark:border-slate-700 pb-4">
+              <div className="text-center sm:text-left space-y-1 flex-1">
+                <h1 className="text-2xl sm:text-3xl font-bold uppercase tracking-wider text-slate-900 dark:text-slate-100 font-sans">
+                  {resumeData.fullName}
+                </h1>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 font-sans">{resumeData.headline}</p>
+                <div className="flex flex-wrap justify-center sm:justify-start items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-400 font-sans pt-1">
+                  <span>{resumeData.email}</span>
+                  <span>•</span>
+                  <span>{resumeData.phone}</span>
+                  <span>•</span>
+                  <span>{resumeData.location}</span>
+                  {resumeData.githubUrl && (
+                    <>
+                      <span>•</span>
+                      <a
+                        href={resumeData.githubUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                      >
+                        <Github className="w-3 h-3" />
+                        <span>{resumeData.githubUrl.replace('https://', '')}</span>
+                      </a>
+                    </>
+                  )}
+                  {resumeData.linkedinUrl && (
+                    <>
+                      <span>•</span>
+                      <a
+                        href={resumeData.linkedinUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                      >
+                        <Linkedin className="w-3 h-3" />
+                        <span>{resumeData.linkedinUrl.replace('https://', '')}</span>
+                      </a>
+                    </>
+                  )}
+                  {resumeData.portfolioUrl && (
+                    <>
+                      <span>•</span>
+                      <a
+                        href={resumeData.portfolioUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                      >
+                        <Globe className="w-3 h-3" />
+                        <span>{resumeData.portfolioUrl.replace('https://', '')}</span>
+                      </a>
+                    </>
+                  )}
+                </div>
               </div>
+
+              {/* Profile Photo if present */}
+              {profilePhoto && (
+                <div className="shrink-0">
+                  <img
+                    src={profilePhoto}
+                    alt={resumeData.fullName}
+                    className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl object-cover border-2 border-slate-300 dark:border-slate-700 shadow-sm"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Professional Summary */}

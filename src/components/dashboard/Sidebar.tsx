@@ -17,6 +17,7 @@ import {
   BookOpen,
   Compass,
   Briefcase,
+  Globe,
   Zap,
   Github,
   Linkedin,
@@ -87,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const aiCareerOsItems: { id: NavTab; label: string; icon: React.ElementType; badge?: string }[] = [
     { id: 'assistant', label: 'Career Assistant', icon: Bot, badge: 'AI' },
+    { id: 'portfolio', label: 'AI Portfolio', icon: Globe, badge: 'PRO' },
     { id: 'project-analyzer', label: 'Project Auditor', icon: FolderGit2, badge: 'AI' },
     { id: 'github-readiness', label: 'GitHub Audit', icon: Github, badge: 'AI' },
     { id: 'linkedin-readiness', label: 'LinkedIn Audit', icon: Linkedin, badge: 'AI' },
@@ -153,7 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 AI Career OS
               </p>
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono font-bold">
-                10 ENGINES
+                11 ENGINES
               </span>
             </div>
           )}
