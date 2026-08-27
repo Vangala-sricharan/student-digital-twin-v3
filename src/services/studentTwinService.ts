@@ -18,6 +18,85 @@ const getStorageKey = (userId: string, suffix: string) => `sdt_user_${userId}_${
 
 export const studentTwinService = {
   // ==========================================
+  // 0. SUPABASE STORAGE (User Avatars & Profile Photos)
+  // ==========================================
+  async uploadProfileImage(
+    userId: string,
+    imageSource: File | Blob | string
+  ): Promise<{ url: string | null; error: Error | null }> {
+    if (!userId) return { url: null, error: new Error('User ID is required') };
+    if (!imageSource) return { url: null, error: new Error('No image provided') };
+
+    try {
+      let blob: Blob;
+      let contentType = 'image/jpeg';
+
+      if (typeof imageSource === 'string') {
+        if (imageSource.startsWith('data:')) {
+          const mimeMatch = imageSource.match(/^data:([^;]+);base64,/);
+          if (mimeMatch) {
+            contentType = mimeMatch[1];
+          }
+          const base64Data = imageSource.split(',')[1];
+          const byteCharacters = atob(base64Data);
+          const byteArrays = new Uint8Array(byteCharacters.length);
+          for (let i = 0; i < byteCharacters.length; i++) {
+            byteArrays[i] = byteCharacters.charCodeAt(i);
+          }
+          blob = new Blob([byteArrays], { type: contentType });
+        } else if (imageSource.startsWith('http://') || imageSource.startsWith('https://')) {
+          return { url: imageSource, error: null };
+        } else {
+          return { url: null, error: new Error('Invalid image string format') };
+        }
+      } else {
+        blob = imageSource;
+        if (blob.type) contentType = blob.type;
+      }
+
+      if (isSupabaseConfigured) {
+        const bucketsToTry = ['avatars', 'profiles', 'user-avatars'];
+        const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
+        const filePath = `${userId}/avatar.${ext}`;
+
+        for (const bucket of bucketsToTry) {
+          try {
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from(bucket)
+              .upload(filePath, blob, {
+                upsert: true,
+                contentType,
+                cacheControl: '3600',
+              });
+
+            if (!uploadError && uploadData) {
+              const { data: publicUrlData } = supabase.storage
+                .from(bucket)
+                .getPublicUrl(filePath);
+
+              if (publicUrlData?.publicUrl) {
+                const finalUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+                return { url: finalUrl, error: null };
+              }
+            }
+          } catch (bucketErr) {
+            console.warn(`[Supabase Storage] Notice on bucket '${bucket}':`, bucketErr);
+          }
+        }
+      }
+
+      // If Supabase Storage is not available or local-only, return original source if valid
+      if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+        return { url: imageSource, error: null };
+      }
+      return { url: null, error: null };
+    } catch (err: any) {
+      console.error('[Supabase Storage] uploadProfileImage error:', err);
+      return { url: typeof imageSource === 'string' ? imageSource : null, error: err };
+    }
+  },
+
+  // ==========================================
   // 1. USER PROFILES (Cloud Auth Metadata + User-scoped Store)
   // ==========================================
   async fetchUserProfile(userId: string): Promise<{ data: UserProfile | null; error: Error | null }> {
@@ -62,12 +141,13 @@ export const studentTwinService = {
           const billingCycle = user.user_metadata?.billing_cycle || cachedProfile?.billingCycle;
           const subscriptionStatus = user.user_metadata?.subscription_status || cachedProfile?.subscriptionStatus;
           const subscriptionDetails = user.user_metadata?.subscription_data || cachedProfile?.subscriptionDetails;
+          const effectiveProfileImg = user.user_metadata?.profile_image_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || cachedProfile?.profileImageUrl || cachedProfile?.avatarUrl || '';
 
           const profile: UserProfile = {
             id: user.id,
             email: user.email || cachedProfile?.email || '',
             fullName,
-            avatarUrl: user.user_metadata?.avatar_url || user.user_metadata?.picture || cachedProfile?.avatarUrl,
+            avatarUrl: effectiveProfileImg,
             university: user.user_metadata?.university || cachedProfile?.university || '',
             degree: user.user_metadata?.degree || cachedProfile?.degree || '',
             branch: user.user_metadata?.branch || cachedProfile?.branch || '',
@@ -83,7 +163,7 @@ export const studentTwinService = {
             linkedinUrl: user.user_metadata?.linkedin_url || user.user_metadata?.linkedinUrl || cachedProfile?.linkedinUrl || '',
             phone: user.user_metadata?.phone || cachedProfile?.phone || '',
             location: user.user_metadata?.location || cachedProfile?.location || '',
-            profileImageUrl: user.user_metadata?.profile_image_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || cachedProfile?.profileImageUrl || cachedProfile?.avatarUrl || '',
+            profileImageUrl: effectiveProfileImg,
             portfolio: user.user_metadata?.portfolio_data || cachedProfile?.portfolio,
             plan: rawPlan as PlanType,
             billingCycle,
@@ -120,14 +200,29 @@ export const studentTwinService = {
     let existingSubDetails: any;
 
     const cached = localStorage.getItem(getStorageKey(userId, 'profile'));
+    let cachedObj: Partial<UserProfile> = {};
     if (cached) {
       try {
-        const parsed = JSON.parse(cached);
-        existingPlan = parsed.plan || 'free';
-        existingCycle = parsed.billingCycle;
-        existingSubStatus = parsed.subscriptionStatus;
-        existingSubDetails = parsed.subscriptionDetails;
+        cachedObj = JSON.parse(cached);
+        existingPlan = cachedObj.plan || 'free';
+        existingCycle = cachedObj.billingCycle;
+        existingSubStatus = cachedObj.subscriptionStatus;
+        existingSubDetails = cachedObj.subscriptionDetails;
       } catch {}
+    }
+
+    let effectiveProfileImage = profile.profileImageUrl || profile.avatarUrl || cachedObj.profileImageUrl || cachedObj.avatarUrl || '';
+
+    // If new image is base64 data URL, upload to Supabase Storage first
+    if (effectiveProfileImage && effectiveProfileImage.startsWith('data:')) {
+      try {
+        const { url: storageUrl } = await this.uploadProfileImage(userId, effectiveProfileImage);
+        if (storageUrl) {
+          effectiveProfileImage = storageUrl;
+        }
+      } catch (uploadErr) {
+        console.warn('[studentTwinService] uploadProfileImage notice:', uploadErr);
+      }
     }
 
     const formattedProfile: UserProfile = {
@@ -149,9 +244,9 @@ export const studentTwinService = {
       linkedinUrl: profile.linkedinUrl || '',
       phone: profile.phone || '',
       location: profile.location || '',
-      profileImageUrl: profile.profileImageUrl || profile.avatarUrl || (cached ? (JSON.parse(cached).profileImageUrl || JSON.parse(cached).avatarUrl) : '') || '',
-      avatarUrl: profile.avatarUrl || profile.profileImageUrl || (cached ? (JSON.parse(cached).avatarUrl || JSON.parse(cached).profileImageUrl) : '') || '',
-      portfolio: profile.portfolio || (cached ? JSON.parse(cached).portfolio : undefined),
+      profileImageUrl: effectiveProfileImage,
+      avatarUrl: effectiveProfileImage,
+      portfolio: profile.portfolio || cachedObj.portfolio,
       plan: profile.plan || existingPlan,
       billingCycle: profile.billingCycle || existingCycle,
       subscriptionStatus: profile.subscriptionStatus || existingSubStatus,
@@ -772,33 +867,69 @@ export const studentTwinService = {
 
       const cloudData = user.user_metadata?.student_twin_data;
       const cachedProfileStr = localStorage.getItem(getStorageKey(userId, 'profile'));
+      let cachedProfile: Partial<UserProfile> = {};
+      if (cachedProfileStr) {
+        try {
+          cachedProfile = JSON.parse(cachedProfileStr);
+        } catch {}
+      }
+
       if (cloudData && typeof cloudData === 'object') {
-        const profile: UserProfile = cloudData.profile || {
+        const cloudProfile = cloudData.profile || {};
+        const effectiveProfileImage =
+          user.user_metadata?.profile_image_url ||
+          user.user_metadata?.avatar_url ||
+          user.user_metadata?.picture ||
+          cloudProfile.profileImageUrl ||
+          cloudProfile.avatarUrl ||
+          cachedProfile.profileImageUrl ||
+          cachedProfile.avatarUrl ||
+          '';
+
+        const effectivePlan: PlanType =
+          (user.user_metadata?.plan as PlanType) ||
+          cloudProfile.plan ||
+          cachedProfile.plan ||
+          'free';
+
+        const effectiveBillingCycle =
+          user.user_metadata?.billing_cycle ||
+          cloudProfile.billingCycle ||
+          cachedProfile.billingCycle;
+
+        const effectiveSubscriptionStatus =
+          user.user_metadata?.subscription_status ||
+          cloudProfile.subscriptionStatus ||
+          cachedProfile.subscriptionStatus;
+
+        const profile: UserProfile = {
           id: user.id,
-          email: user.email || '',
-          fullName: user.user_metadata?.full_name || '',
-          university: user.user_metadata?.university || '',
-          degree: user.user_metadata?.degree || '',
-          branch: user.user_metadata?.branch || '',
-          program: user.user_metadata?.program || '',
-          year: user.user_metadata?.year || '',
-          expectedGraduationYear: user.user_metadata?.expected_graduation_year || '',
-          careerGoal: user.user_metadata?.career_goal || '',
-          targetRole: user.user_metadata?.target_role || '',
-          currentSkills: user.user_metadata?.current_skills || '',
-          skills: user.user_metadata?.skills || [],
-          bio: user.user_metadata?.bio || '',
-          githubUrl: user.user_metadata?.github_url || '',
-          linkedinUrl: user.user_metadata?.linkedin_url || '',
-          phone: user.user_metadata?.phone || '',
-          location: user.user_metadata?.location || '',
-          profileImageUrl: cloudData.profile?.profileImageUrl || user.user_metadata?.profile_image_url || (cachedProfileStr ? JSON.parse(cachedProfileStr)?.profileImageUrl : '') || '',
-          portfolio: cloudData.profile?.portfolio || user.user_metadata?.portfolio_data || (cachedProfileStr ? JSON.parse(cachedProfileStr)?.portfolio : undefined),
-          plan: (user.user_metadata?.plan as PlanType) || 'free',
-          billingCycle: user.user_metadata?.billing_cycle,
-          subscriptionStatus: user.user_metadata?.subscription_status,
-          isOnboarded: user.user_metadata?.is_onboarded ?? true,
-          createdAt: user.created_at || new Date().toISOString(),
+          email: user.email || cachedProfile.email || '',
+          fullName: user.user_metadata?.full_name || cloudProfile.fullName || cachedProfile.fullName || 'Student User',
+          university: user.user_metadata?.university || cloudProfile.university || cachedProfile.university || '',
+          degree: user.user_metadata?.degree || cloudProfile.degree || cachedProfile.degree || '',
+          branch: user.user_metadata?.branch || cloudProfile.branch || cachedProfile.branch || '',
+          program: user.user_metadata?.program || cloudProfile.program || cachedProfile.program || '',
+          year: user.user_metadata?.year || cloudProfile.year || cachedProfile.year || '',
+          expectedGraduationYear: user.user_metadata?.expected_graduation_year || cloudProfile.expectedGraduationYear || cachedProfile.expectedGraduationYear || '',
+          careerGoal: user.user_metadata?.career_goal || cloudProfile.careerGoal || cachedProfile.careerGoal || '',
+          targetRole: user.user_metadata?.target_role || cloudProfile.targetRole || cachedProfile.targetRole || '',
+          currentSkills: user.user_metadata?.current_skills || cloudProfile.currentSkills || cachedProfile.currentSkills || '',
+          skills: user.user_metadata?.skills || cloudProfile.skills || cachedProfile.skills || [],
+          bio: user.user_metadata?.bio || cloudProfile.bio || cachedProfile.bio || '',
+          githubUrl: user.user_metadata?.github_url || cloudProfile.githubUrl || cachedProfile.githubUrl || '',
+          linkedinUrl: user.user_metadata?.linkedin_url || cloudProfile.linkedinUrl || cachedProfile.linkedinUrl || '',
+          phone: user.user_metadata?.phone || cloudProfile.phone || cachedProfile.phone || '',
+          location: user.user_metadata?.location || cloudProfile.location || cachedProfile.location || '',
+          profileImageUrl: effectiveProfileImage,
+          avatarUrl: effectiveProfileImage,
+          portfolio: cloudProfile.portfolio || user.user_metadata?.portfolio_data || cachedProfile.portfolio,
+          plan: effectivePlan,
+          billingCycle: effectiveBillingCycle,
+          subscriptionStatus: effectiveSubscriptionStatus,
+          subscriptionDetails: user.user_metadata?.subscription_data || cloudProfile.subscriptionDetails || cachedProfile.subscriptionDetails,
+          isOnboarded: user.user_metadata?.is_onboarded ?? (cloudProfile.isOnboarded ?? (cachedProfile.isOnboarded ?? true)),
+          createdAt: user.created_at || cloudProfile.createdAt || cachedProfile.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           isDemo: false,
         };
@@ -841,7 +972,7 @@ export const studentTwinService = {
       }
 
       // If no student_twin_data bundle exists, check if basic profile exists in user metadata or local cache
-      if (user.user_metadata?.university || user.user_metadata?.full_name) {
+      if (user.user_metadata?.university || user.user_metadata?.full_name || user.user_metadata?.profile_image_url) {
         const { data: profile } = await this.fetchUserProfile(userId);
         return {
           data: {
@@ -888,8 +1019,22 @@ export const studentTwinService = {
     }
 
     let effectivePlan = profile.plan || existingCached.plan || 'free';
-    const effectiveProfileImage = profile.profileImageUrl || profile.avatarUrl || existingCached.profileImageUrl || existingCached.avatarUrl || '';
+    let effectiveBillingCycle = profile.billingCycle || existingCached.billingCycle;
+    let effectiveSubStatus = profile.subscriptionStatus || existingCached.subscriptionStatus;
+    let effectiveProfileImage = profile.profileImageUrl || profile.avatarUrl || existingCached.profileImageUrl || existingCached.avatarUrl || '';
     const effectivePortfolio = profile.portfolio || existingCached.portfolio;
+
+    // If new image is base64 data URL, upload to Supabase Storage first
+    if (effectiveProfileImage && effectiveProfileImage.startsWith('data:')) {
+      try {
+        const { url: storageUrl } = await this.uploadProfileImage(userId, effectiveProfileImage);
+        if (storageUrl) {
+          effectiveProfileImage = storageUrl;
+        }
+      } catch (uploadErr) {
+        console.warn('[studentTwinService] uploadProfileImage notice:', uploadErr);
+      }
+    }
 
     const mergedProfile: UserProfile = {
       ...existingCached,
@@ -899,6 +1044,8 @@ export const studentTwinService = {
       avatarUrl: effectiveProfileImage,
       portfolio: effectivePortfolio,
       plan: effectivePlan,
+      billingCycle: effectiveBillingCycle,
+      subscriptionStatus: effectiveSubStatus,
       updatedAt: new Date().toISOString(),
     };
 

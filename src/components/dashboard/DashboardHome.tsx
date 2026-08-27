@@ -32,6 +32,7 @@ import { Badge } from '../common/Badge';
 import { EmptyState } from '../common/EmptyState';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
+import { getSubscriptionPlanInfo } from '../../utils/formatters';
 
 interface DashboardHomeProps {
   userProfile: UserProfile | null;
@@ -46,6 +47,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 }) => {
   const { uploadDataToCloud, isSyncing, syncStatus, syncMessage } = useStudentTwin();
   const displayName = userProfile?.fullName || 'Student';
+  const planInfo = getSubscriptionPlanInfo(userProfile, isDemo);
 
   return (
     <div className="space-y-6">
@@ -77,7 +79,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 Current Plan
               </span>
               <span className="text-sm font-bold text-emerald-400 font-mono">
-                {isDemo ? 'DEMO PRO' : 'FREE PLAN (₹0)'}
+                {planInfo.badgeLabel}
               </span>
             </div>
 

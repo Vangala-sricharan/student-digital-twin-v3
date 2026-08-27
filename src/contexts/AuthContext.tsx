@@ -104,12 +104,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedPlan = authUser.user_metadata?.plan || 'free';
     const billingCycle = authUser.user_metadata?.billing_cycle;
     const subscriptionStatus = authUser.user_metadata?.subscription_status;
+    const effectiveProfileImage =
+      authUser.user_metadata?.profile_image_url ||
+      authUser.user_metadata?.avatar_url ||
+      authUser.user_metadata?.picture ||
+      '';
                      
     const profile: UserProfile = {
       id: authUser.id,
       email: authUser.email || '',
       fullName: fullName,
-      avatarUrl: authUser.user_metadata?.avatar_url || authUser.user_metadata?.picture,
+      avatarUrl: effectiveProfileImage,
+      profileImageUrl: effectiveProfileImage,
       plan: savedPlan,
       billingCycle: billingCycle,
       subscriptionStatus: subscriptionStatus,

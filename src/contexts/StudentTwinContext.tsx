@@ -771,6 +771,15 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       activeStudentProfileId
     );
 
+    // Refresh userProfile from local cache to reflect uploaded storage URLs
+    try {
+      const cached = localStorage.getItem(`sdt_user_${userId}_profile`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setUserProfile(parsed);
+      }
+    } catch {}
+
     setIsSyncing(false);
     if (res.success) {
       setSyncStatus('success');

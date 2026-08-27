@@ -20,7 +20,7 @@ import { UserProfile } from '../../types';
 import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
-import { formatINR } from '../../utils/formatters';
+import { formatINR, getSubscriptionPlanInfo } from '../../utils/formatters';
 import { PRICING_PLANS } from '../../constants/pricing';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
 import { UpiPaymentModal } from './UpiPaymentModal';
@@ -60,32 +60,12 @@ export const SubscriptionView: React.FC<SubscriptionViewProps> = ({
   const proPlan = PRICING_PLANS.pro;
   const institutionalPlan = PRICING_PLANS.institutional;
 
-  const isPro =
-    userProfile?.plan === 'pro' ||
-    userProfile?.plan === 'pro_monthly' ||
-    userProfile?.plan === 'pro_annual' ||
-    userProfile?.plan === 'annual';
+  const planInfo = getSubscriptionPlanInfo(userProfile, isDemo);
+  const isPro = planInfo.isPro;
+  const isPendingVerification = planInfo.isPending;
+  const isMonthlyPro = planInfo.isMonthly;
 
-  const isPendingVerification = userProfile?.subscriptionStatus === 'pending_verification';
-
-  const isMonthlyPro =
-    userProfile?.plan === 'pro_monthly' ||
-    (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly') ||
-    userProfile?.billingCycle === 'monthly';
-
-  const currentPlanLabel = () => {
-    if (isPendingVerification) {
-      const amount = isMonthlyPro ? 499 : 1499;
-      return `Student Pro (${formatINR(amount)}) — Verification Pending`;
-    }
-    if (isMonthlyPro) {
-      return `Student Pro Monthly — ACTIVE (${formatINR(499)}/mo)`;
-    }
-    if (isPro) {
-      return `Student Pro Annual — ACTIVE (${formatINR(1499)}/yr)`;
-    }
-    return `Free Plan (${formatINR(0)})`;
-  };
+  const currentPlanLabel = () => planInfo.fullLabel;
 
   const handleConfirmUpiPayment = async (transactionRef?: string) => {
     setIsActivatingPlan(true);

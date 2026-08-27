@@ -16,7 +16,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DemoProvider, useDemo } from './contexts/DemoContext';
 import { StudentTwinProvider, useStudentTwin } from './contexts/StudentTwinContext';
-import { NavTab, UserProfile } from './types';
+import { NavTab, UserProfile, PlanType } from './types';
 
 // Layout
 import { Navbar } from './components/layout/Navbar';
@@ -219,14 +219,18 @@ const MainAppContent: React.FC = () => {
       id: user.id,
       email: user.email || 'student@university.edu',
       fullName: user.user_metadata?.full_name || user.user_metadata?.name || 'Student User',
-      university: '',
-      degree: '',
-      branch: '',
-      program: '',
-      year: '',
-      careerGoal: '',
-      targetRole: '',
-      plan: 'free',
+      university: user.user_metadata?.university || '',
+      degree: user.user_metadata?.degree || '',
+      branch: user.user_metadata?.branch || '',
+      program: user.user_metadata?.program || '',
+      year: user.user_metadata?.year || '',
+      careerGoal: user.user_metadata?.career_goal || '',
+      targetRole: user.user_metadata?.target_role || '',
+      profileImageUrl: user.user_metadata?.profile_image_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || '',
+      avatarUrl: user.user_metadata?.avatar_url || user.user_metadata?.profile_image_url || user.user_metadata?.picture || '',
+      plan: (user.user_metadata?.plan as PlanType) || 'free',
+      billingCycle: user.user_metadata?.billing_cycle,
+      subscriptionStatus: user.user_metadata?.subscription_status,
       createdAt: user.created_at || new Date().toISOString(),
     };
 

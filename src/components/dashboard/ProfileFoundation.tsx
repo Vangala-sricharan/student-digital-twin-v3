@@ -25,6 +25,7 @@ import { Card } from '../common/Card';
 import { Button } from '../common/Button';
 import { Badge } from '../common/Badge';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
+import { studentTwinService } from '../../services/studentTwinService';
 import { PRICING_PLANS } from '../../constants/pricing';
 import { formatINR } from '../../utils/formatters';
 
@@ -103,9 +104,9 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new window.Image();
-      img.onload = () => {
+      img.onload = async () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 320;
+        const maxDim = 400;
         let width = img.width;
         let height = img.height;
 
@@ -127,11 +128,40 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
           const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          
+          // Show instant preview
           setFormData((prev) => ({
             ...prev,
             profileImageUrl: compressedDataUrl,
           }));
-          setStatusMessage('Profile photo updated. Click Save Profile to sync to cloud.');
+
+          // Upload directly to Supabase Storage if authenticated
+          if (!isDemo && profile?.id) {
+            try {
+              const { url: storageUrl } = await studentTwinService.uploadProfileImage(profile.id, file);
+              if (storageUrl) {
+                setFormData((prev) => ({
+                  ...prev,
+                  profileImageUrl: storageUrl,
+                }));
+                await updateUserProfile({
+                  profileImageUrl: storageUrl,
+                  avatarUrl: storageUrl,
+                });
+                setStatusMessage('Profile photo uploaded and synced to cloud storage.');
+                setSaveStatus('success');
+                setTimeout(() => {
+                  setSaveStatus('idle');
+                  setStatusMessage(null);
+                }, 3000);
+                return;
+              }
+            } catch (err) {
+              console.warn('[ProfileFoundation] Storage upload notice:', err);
+            }
+          }
+
+          setStatusMessage('Profile photo updated. Click Save Profile or Upload to Cloud to sync.');
           setSaveStatus('idle');
         }
       };
@@ -178,10 +208,17 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
   };
 
   const handleManualUpload = async () => {
-    await uploadDataToCloud({
+    if (isDemo) return;
+    setStatusMessage(null);
+    const res = await uploadDataToCloud({
       ...formData,
       program: `${formData.degree} in ${formData.branch}`,
     });
+    if (res.success) {
+      setStatusMessage('Cloud Sync Successful: Your profile is updated in Supabase.');
+    } else {
+      setStatusMessage(res.message || 'Failed to sync with Supabase.');
+    }
   };
 
   const degreeOptions = [

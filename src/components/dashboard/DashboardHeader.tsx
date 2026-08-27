@@ -19,7 +19,7 @@ import { ThemeToggle } from '../common/ThemeToggle';
 import { Badge } from '../common/Badge';
 import { UserProfile, NavTab } from '../../types';
 import { PRICING_PLANS } from '../../constants/pricing';
-import { formatINR } from '../../utils/formatters';
+import { formatINR, getSubscriptionPlanInfo } from '../../utils/formatters';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
 
 interface DashboardHeaderProps {
@@ -43,6 +43,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
   const displayName = userProfile?.fullName || 'Student User';
   const displayEmail = userProfile?.email || '';
+  const planInfo = getSubscriptionPlanInfo(userProfile, isDemo);
   const initials = (displayName || 'ST')
     .split(' ')
     .filter(Boolean)
@@ -184,23 +185,13 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
             {/* Active Plan badge */}
             <span className={`hidden xl:inline-flex items-center h-9 px-2.5 rounded-lg text-[10px] font-mono font-semibold border select-none ${
-              userProfile?.subscriptionStatus === 'pending_verification'
+              planInfo.isPending
                 ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
-                : userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
-                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
-                : userProfile?.plan === 'pro_annual' || userProfile?.plan === 'annual' || userProfile?.plan === 'pro'
+                : planInfo.isPro
                 ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
                 : 'bg-white/5 border-white/10 dark:bg-white/5 dark:border-white/10 light:bg-slate-100 light:border-slate-300 text-slate-400'
             }`}>
-              {userProfile?.subscriptionStatus === 'pending_verification'
-                ? userProfile?.plan === 'pro_monthly' || userProfile?.billingCycle === 'monthly'
-                  ? `STUDENT PRO (${formatINR(499)}) — PENDING`
-                  : `STUDENT PRO (${formatINR(1499)}) — PENDING`
-                : userProfile?.plan === 'pro_monthly' || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'monthly')
-                ? `STUDENT PRO — MONTHLY (${formatINR(499)})`
-                : userProfile?.plan === 'pro_annual' || userProfile?.plan === 'annual' || (userProfile?.plan === 'pro' && !userProfile?.billingCycle) || (userProfile?.plan === 'pro' && userProfile?.billingCycle === 'annual')
-                ? `STUDENT PRO — ANNUAL (${formatINR(1499)})`
-                : `FREE PLAN (${formatINR(0)})`}
+              {planInfo.badgeLabel}
             </span>
 
             <ThemeToggle id="dashboard-theme-toggle" />
@@ -214,8 +205,17 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
                 className="h-9 inline-flex items-center gap-2 px-2 sm:px-2.5 rounded-lg border border-white/10 dark:border-white/10 light:border-slate-300 bg-white/5 hover:bg-white/10 dark:bg-white/5 dark:hover:bg-white/10 light:bg-slate-100 light:hover:bg-slate-200 transition-colors cursor-pointer select-none"
                 aria-expanded={userDropdownOpen}
               >
-                <div className="w-6 h-6 rounded-md bg-blue-600 dark:bg-blue-600 light:bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs">
-                  {initials || <User className="w-3.5 h-3.5" />}
+                <div className="w-6 h-6 rounded-md bg-blue-600 dark:bg-blue-600 light:bg-blue-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs overflow-hidden">
+                  {userProfile?.profileImageUrl || userProfile?.avatarUrl ? (
+                    <img
+                      src={userProfile.profileImageUrl || userProfile.avatarUrl}
+                      alt={displayName}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    initials || <User className="w-3.5 h-3.5" />
+                  )}
                 </div>
                 <span className="text-xs font-semibold text-slate-100 dark:text-slate-100 light:text-slate-900 truncate max-w-[100px] sm:max-w-[130px] md:max-w-[160px]">
                   {displayName}
