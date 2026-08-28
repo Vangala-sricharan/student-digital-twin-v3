@@ -96,30 +96,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Construct a clean, isolated profile for the real authenticated user
   const setupUserProfile = (authUser: User) => {
+    let cachedProfile: any = null;
+    try {
+      const raw = localStorage.getItem(`sdt_user_${authUser.id}_profile`);
+      if (raw) cachedProfile = JSON.parse(raw);
+    } catch {}
+
     const fullName = authUser.user_metadata?.full_name || 
                      authUser.user_metadata?.name || 
+                     cachedProfile?.fullName ||
                      authUser.email?.split('@')[0] || 
                      'Student User';
 
-    const savedPlan = authUser.user_metadata?.plan || 'free';
-    const billingCycle = authUser.user_metadata?.billing_cycle;
-    const subscriptionStatus = authUser.user_metadata?.subscription_status;
+    const savedPlan = authUser.user_metadata?.plan || cachedProfile?.plan || 'free';
+    const billingCycle = authUser.user_metadata?.billing_cycle || cachedProfile?.billingCycle;
+    const subscriptionStatus = authUser.user_metadata?.subscription_status || cachedProfile?.subscriptionStatus;
+    const subscriptionDetails = authUser.user_metadata?.subscription_data || cachedProfile?.subscriptionDetails;
     const effectiveProfileImage =
       authUser.user_metadata?.profile_image_url ||
       authUser.user_metadata?.avatar_url ||
       authUser.user_metadata?.picture ||
+      cachedProfile?.profileImageUrl ||
+      cachedProfile?.avatarUrl ||
       '';
                      
     const profile: UserProfile = {
       id: authUser.id,
-      email: authUser.email || '',
+      email: authUser.email || cachedProfile?.email || '',
       fullName: fullName,
       avatarUrl: effectiveProfileImage,
       profileImageUrl: effectiveProfileImage,
       plan: savedPlan,
       billingCycle: billingCycle,
       subscriptionStatus: subscriptionStatus,
-      createdAt: authUser.created_at || new Date().toISOString(),
+      subscriptionDetails: subscriptionDetails,
+      createdAt: authUser.created_at || cachedProfile?.createdAt || new Date().toISOString(),
       isDemo: false,
     };
 

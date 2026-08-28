@@ -754,9 +754,15 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setSyncStatus('syncing');
     setSyncMessage('Uploading student twin records to Supabase...');
 
+    const existingImage = userProfile.profileImageUrl || userProfile.avatarUrl || '';
+    const incomingImage = overrideProfile?.profileImageUrl !== undefined ? overrideProfile.profileImageUrl : (overrideProfile?.avatarUrl !== undefined ? overrideProfile.avatarUrl : existingImage);
+    const effectiveImage = incomingImage || existingImage;
+
     const profileToUpload: UserProfile = {
       ...userProfile,
       ...(overrideProfile || {}),
+      profileImageUrl: effectiveImage,
+      avatarUrl: effectiveImage,
     };
     setUserProfile(profileToUpload);
 
@@ -776,6 +782,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const cached = localStorage.getItem(`sdt_user_${userId}_profile`);
       if (cached) {
         const parsed = JSON.parse(cached);
+        if (!parsed.profileImageUrl && effectiveImage) {
+          parsed.profileImageUrl = effectiveImage;
+          parsed.avatarUrl = effectiveImage;
+          localStorage.setItem(`sdt_user_${userId}_profile`, JSON.stringify(parsed));
+        }
         setUserProfile(parsed);
       }
     } catch {}

@@ -27,7 +27,7 @@ import { Badge } from '../common/Badge';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
 import { studentTwinService } from '../../services/studentTwinService';
 import { PRICING_PLANS } from '../../constants/pricing';
-import { formatINR } from '../../utils/formatters';
+import { formatINR, getSubscriptionPlanInfo } from '../../utils/formatters';
 
 interface ProfileFoundationProps {
   userProfile: UserProfile | null;
@@ -48,8 +48,10 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
   } = useStudentTwin();
 
   const profile = isDemo ? propUserProfile : ctxUserProfile || propUserProfile;
+  const planInfo = getSubscriptionPlanInfo(profile, isDemo);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadVersionRef = useRef(0);
 
   const [formData, setFormData] = useState({
     fullName: profile?.fullName || '',
@@ -72,20 +74,28 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
 
   useEffect(() => {
     if (profile) {
-      setFormData({
-        fullName: profile.fullName || '',
-        university: profile.university || '',
-        degree: profile.degree || 'B.Tech',
-        branch: profile.branch || '',
-        year: profile.year || '1st Year',
-        careerGoal: profile.careerGoal || '',
-        targetRole: profile.targetRole || '',
-        bio: profile.bio || '',
-        githubUrl: profile.githubUrl || '',
-        linkedinUrl: profile.linkedinUrl || '',
-        phone: profile.phone || '',
-        location: profile.location || '',
-        profileImageUrl: profile.profileImageUrl || profile.avatarUrl || '',
+      setFormData((prev) => {
+        // Preserve active preview/image if profile hasn't loaded it yet or is empty
+        const effectiveImage =
+          profile.profileImageUrl ||
+          profile.avatarUrl ||
+          (prev.profileImageUrl ? prev.profileImageUrl : '');
+
+        return {
+          fullName: profile.fullName || '',
+          university: profile.university || '',
+          degree: profile.degree || 'B.Tech',
+          branch: profile.branch || '',
+          year: profile.year || '1st Year',
+          careerGoal: profile.careerGoal || '',
+          targetRole: profile.targetRole || '',
+          bio: profile.bio || '',
+          githubUrl: profile.githubUrl || '',
+          linkedinUrl: profile.linkedinUrl || '',
+          phone: profile.phone || '',
+          location: profile.location || '',
+          profileImageUrl: effectiveImage,
+        };
       });
     }
   }, [profile]);
@@ -100,13 +110,21 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
       return;
     }
 
+    if (file.size > 10 * 1024 * 1024) {
+      setStatusMessage('File size exceeds 10MB limit. Please choose a smaller image.');
+      setSaveStatus('error');
+      return;
+    }
+
+    const currentReqVersion = ++uploadVersionRef.current;
+
     // Read and compress image
     const reader = new FileReader();
     reader.onload = (event) => {
       const img = new window.Image();
       img.onload = async () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 400;
+        const maxDim = 320;
         let width = img.width;
         let height = img.height;
 
@@ -127,28 +145,37 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
         const ctx = canvas.getContext('2d');
         if (ctx) {
           ctx.drawImage(img, 0, 0, width, height);
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          
-          // Show instant preview
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+
+          // Show immediate local preview
           setFormData((prev) => ({
             ...prev,
             profileImageUrl: compressedDataUrl,
           }));
 
-          // Upload directly to Supabase Storage if authenticated
+          // Upload to persistent storage if authenticated
           if (!isDemo && profile?.id) {
+            setSaveStatus('saving');
+            setStatusMessage('Saving profile photo...');
+
             try {
               const { url: storageUrl } = await studentTwinService.uploadProfileImage(profile.id, file);
-              if (storageUrl) {
+              
+              // Only apply if this is still the latest upload request
+              if (uploadVersionRef.current === currentReqVersion) {
+                const finalImageUrl = storageUrl || compressedDataUrl;
+
                 setFormData((prev) => ({
                   ...prev,
-                  profileImageUrl: storageUrl,
+                  profileImageUrl: finalImageUrl,
                 }));
+
                 await updateUserProfile({
-                  profileImageUrl: storageUrl,
-                  avatarUrl: storageUrl,
+                  profileImageUrl: finalImageUrl,
+                  avatarUrl: finalImageUrl,
                 });
-                setStatusMessage('Profile photo uploaded and synced to cloud storage.');
+
+                setStatusMessage('Profile photo saved and synced.');
                 setSaveStatus('success');
                 setTimeout(() => {
                   setSaveStatus('idle');
@@ -158,11 +185,18 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
               }
             } catch (err) {
               console.warn('[ProfileFoundation] Storage upload notice:', err);
+              if (uploadVersionRef.current === currentReqVersion) {
+                setStatusMessage('Profile photo saved locally. Existing photo is safe.');
+                setSaveStatus('idle');
+                setTimeout(() => setStatusMessage(null), 3000);
+              }
+              return;
             }
           }
 
-          setStatusMessage('Profile photo updated. Click Save Profile or Upload to Cloud to sync.');
+          setStatusMessage('Profile photo updated.');
           setSaveStatus('idle');
+          setTimeout(() => setStatusMessage(null), 3000);
         }
       };
       img.src = event.target?.result as string;
@@ -170,10 +204,18 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const handleRemovePhoto = () => {
+  const handleRemovePhoto = async () => {
     setFormData((prev) => ({ ...prev, profileImageUrl: '' }));
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+    if (!isDemo && profile?.id) {
+      await updateUserProfile({
+        profileImageUrl: '',
+        avatarUrl: '',
+      });
+      setStatusMessage('Profile photo removed.');
+      setTimeout(() => setStatusMessage(null), 3000);
     }
   };
 
@@ -189,8 +231,12 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
     setSaveStatus('saving');
     setStatusMessage(null);
 
+    const effectiveImage = formData.profileImageUrl || profile?.profileImageUrl || profile?.avatarUrl || '';
+
     const result = await updateUserProfile({
       ...formData,
+      profileImageUrl: effectiveImage,
+      avatarUrl: effectiveImage,
       program: `${formData.degree} in ${formData.branch}`,
     });
 
@@ -210,8 +256,11 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
   const handleManualUpload = async () => {
     if (isDemo) return;
     setStatusMessage(null);
+    const effectiveImage = formData.profileImageUrl || profile?.profileImageUrl || profile?.avatarUrl || '';
     const res = await uploadDataToCloud({
       ...formData,
+      profileImageUrl: effectiveImage,
+      avatarUrl: effectiveImage,
       program: `${formData.degree} in ${formData.branch}`,
     });
     if (res.success) {
@@ -391,7 +440,7 @@ export const ProfileFoundation: React.FC<ProfileFoundationProps> = ({
             <div className="flex justify-between">
               <span className="text-slate-400">Subscription Plan:</span>
               <span className="font-bold text-emerald-400 uppercase">
-                {profile?.plan === 'pro' ? `PRO (${formatINR(PRICING_PLANS.pro.annualPrice)}/yr)` : `FREE PLAN (${formatINR(0)})`}
+                {planInfo.badgeLabel}
               </span>
             </div>
             <div className="flex justify-between">

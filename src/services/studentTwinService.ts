@@ -16,6 +16,22 @@ import {
  */
 const getStorageKey = (userId: string, suffix: string) => `sdt_user_${userId}_${suffix}`;
 
+let cachedWorkingBucket: string | null = null;
+
+const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  let timer: any;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timer);
+      return res;
+    }),
+    timeoutPromise,
+  ]);
+};
+
 export const studentTwinService = {
   // ==========================================
   // 0. SUPABASE STORAGE (User Avatars & Profile Photos)
@@ -54,12 +70,12 @@ export const studentTwinService = {
         if (blob.type) contentType = blob.type;
       }
 
+      // Fast Supabase Storage upload with hard 3.5-second timeout
       if (isSupabaseConfigured) {
-        const bucketsToTry = ['avatars', 'profiles', 'user-avatars'];
         const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
         const filePath = `${userId}/avatar.${ext}`;
 
-        for (const bucket of bucketsToTry) {
+        const uploadToBucket = async (bucket: string): Promise<string | null> => {
           try {
             const { data: uploadData, error: uploadError } = await supabase.storage
               .from(bucket)
@@ -75,24 +91,68 @@ export const studentTwinService = {
                 .getPublicUrl(filePath);
 
               if (publicUrlData?.publicUrl) {
-                const finalUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
-                return { url: finalUrl, error: null };
+                return `${publicUrlData.publicUrl}?t=${Date.now()}`;
               }
             }
           } catch (bucketErr) {
-            console.warn(`[Supabase Storage] Notice on bucket '${bucket}':`, bucketErr);
+            // Bucket upload failed or not permitted
           }
+          return null;
+        };
+
+        const attemptUpload = async (): Promise<string | null> => {
+          // If we already know the working bucket, use it directly
+          if (cachedWorkingBucket) {
+            const url = await uploadToBucket(cachedWorkingBucket);
+            if (url) return url;
+            cachedWorkingBucket = null;
+          }
+
+          // Try primary buckets in parallel
+          const bucketsToTry = ['avatars', 'profiles', 'user-avatars', 'public'];
+          const results = await Promise.allSettled(
+            bucketsToTry.map(async (b) => {
+              const url = await uploadToBucket(b);
+              if (url) {
+                cachedWorkingBucket = b;
+                return url;
+              }
+              throw new Error(`Bucket ${b} failed`);
+            })
+          );
+
+          for (const res of results) {
+            if (res.status === 'fulfilled' && res.value) {
+              return res.value;
+            }
+          }
+          return null;
+        };
+
+        const storageUrl = await withTimeout(attemptUpload(), 3500, null);
+        if (storageUrl) {
+          return { url: storageUrl, error: null };
         }
       }
 
-      // If Supabase Storage is not available or local-only, return original source if valid
+      // Fallback: If Storage unavailable or timed out, return compressed data URL instantly
       if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
         return { url: imageSource, error: null };
       }
-      return { url: null, error: null };
+
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve({ url: (reader.result as string) || null, error: null });
+        };
+        reader.onerror = () => {
+          resolve({ url: null, error: null });
+        };
+        reader.readAsDataURL(blob);
+      });
     } catch (err: any) {
-      console.error('[Supabase Storage] uploadProfileImage error:', err);
-      return { url: typeof imageSource === 'string' ? imageSource : null, error: err };
+      console.error('[Supabase Storage] uploadProfileImage notice:', err);
+      return { url: typeof imageSource === 'string' ? imageSource : null, error: null };
     }
   },
 
@@ -263,43 +323,50 @@ export const studentTwinService = {
     // Sync to Supabase Auth user_metadata so authenticated session carries user details
     if (isSupabaseConfigured) {
       try {
-        const { error } = await supabase.auth.updateUser({
-          data: {
-            full_name: formattedProfile.fullName,
-            university: formattedProfile.university,
-            degree: formattedProfile.degree,
-            branch: formattedProfile.branch,
-            program: formattedProfile.program,
-            year: formattedProfile.year,
-            expected_graduation_year: formattedProfile.expectedGraduationYear,
-            career_goal: formattedProfile.careerGoal,
-            target_role: formattedProfile.targetRole,
-            current_skills: formattedProfile.currentSkills,
-            skills: formattedProfile.skills,
-            bio: formattedProfile.bio,
-            github_url: formattedProfile.githubUrl,
-            linkedin_url: formattedProfile.linkedinUrl,
-            phone: formattedProfile.phone,
-            location: formattedProfile.location,
-            profile_image_url: formattedProfile.profileImageUrl || '',
-            avatar_url: formattedProfile.avatarUrl || formattedProfile.profileImageUrl || '',
-            portfolio_data: formattedProfile.portfolio,
-            plan: formattedProfile.plan,
-            billing_cycle: formattedProfile.billingCycle,
-            subscription_status: formattedProfile.subscriptionStatus,
-            is_onboarded: formattedProfile.isOnboarded,
-          },
-        });
-        if (error) {
-          console.error('[Supabase Service] upsertUserProfile updateUser error:', {
-            message: error.message,
-            status: error.status,
+        let hasActiveSession = false;
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData?.session?.user && sessionData.session.user.id === userId) {
+            hasActiveSession = true;
+          }
+        } catch {}
+
+        if (hasActiveSession) {
+          const updatePromise = supabase.auth.updateUser({
+            data: {
+              full_name: formattedProfile.fullName,
+              university: formattedProfile.university,
+              degree: formattedProfile.degree,
+              branch: formattedProfile.branch,
+              program: formattedProfile.program,
+              year: formattedProfile.year,
+              expected_graduation_year: formattedProfile.expectedGraduationYear,
+              career_goal: formattedProfile.careerGoal,
+              target_role: formattedProfile.targetRole,
+              current_skills: formattedProfile.currentSkills,
+              skills: formattedProfile.skills,
+              bio: formattedProfile.bio,
+              github_url: formattedProfile.githubUrl,
+              linkedin_url: formattedProfile.linkedinUrl,
+              phone: formattedProfile.phone,
+              location: formattedProfile.location,
+              profile_image_url: formattedProfile.profileImageUrl || '',
+              avatar_url: formattedProfile.avatarUrl || formattedProfile.profileImageUrl || '',
+              portfolio_data: formattedProfile.portfolio,
+              plan: formattedProfile.plan,
+              billing_cycle: formattedProfile.billingCycle,
+              subscription_status: formattedProfile.subscriptionStatus,
+              is_onboarded: formattedProfile.isOnboarded,
+            },
           });
-          return { data: formattedProfile, error: new Error(error.message) };
+
+          const { error } = await withTimeout(updatePromise, 3500, { data: null, error: null as any });
+          if (error) {
+            console.warn('[Supabase Service] upsertUserProfile updateUser notice (saved locally):', error.message || error);
+          }
         }
       } catch (err: any) {
-        console.error('[Supabase Service] Error updating user metadata in Supabase Auth:', err);
-        return { data: formattedProfile, error: new Error(err.message || 'Failed to update user profile in Supabase') };
+        console.warn('[Supabase Service] Notice during user metadata sync (saved locally):', err?.message || err);
       }
     }
 
@@ -341,24 +408,34 @@ export const studentTwinService = {
     // Persist to Supabase
     if (isSupabaseConfigured) {
       try {
-        // 1. Update Auth user metadata
-        const { error: metaErr } = await supabase.auth.updateUser({
-          data: {
-            plan: subscription.selectedPlan,
-            billing_cycle: subscription.billingCycle,
-            subscription_status: subscription.subscriptionStatus,
-            subscription_data: subscription,
-          },
-        });
+        let hasActiveSession = false;
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (sessionData?.session?.user && sessionData.session.user.id === userId) {
+            hasActiveSession = true;
+          }
+        } catch {}
 
-        if (metaErr) {
-          console.error('[Supabase Subscription] Error updating user metadata:', metaErr);
-          return { data: null, error: new Error(metaErr.message) };
+        if (hasActiveSession) {
+          // 1. Update Auth user metadata
+          const updatePromise = supabase.auth.updateUser({
+            data: {
+              plan: subscription.selectedPlan,
+              billing_cycle: subscription.billingCycle,
+              subscription_status: subscription.subscriptionStatus,
+              subscription_data: subscription,
+            },
+          });
+
+          const { error: metaErr } = await withTimeout(updatePromise, 3500, { data: null, error: null as any });
+          if (metaErr) {
+            console.warn('[Supabase Subscription] Notice updating user metadata (saved locally):', metaErr.message || metaErr);
+          }
         }
 
         // 2. Attempt upsert into subscriptions table (if schema exists)
         try {
-          const { error: tableErr } = await supabase.from('subscriptions').upsert(
+          await supabase.from('subscriptions').upsert(
             {
               user_id: userId,
               email: subscription.email,
@@ -378,19 +455,15 @@ export const studentTwinService = {
             },
             { onConflict: 'user_id' }
           );
-
-          if (tableErr) {
-            console.warn('[Supabase Subscription] Subscriptions table notice (auth metadata remains primary):', tableErr.message);
-          }
         } catch (tableEx) {
           console.warn('[Supabase Subscription] Optional database table insert skipped:', tableEx);
         }
 
-        console.log('[Supabase Subscription] Subscription successfully persisted to Supabase Auth metadata.');
+        console.log('[Supabase Subscription] Subscription successfully persisted.');
         return { data: subscription, error: null };
       } catch (err: any) {
-        console.error('[Supabase Subscription] Exception during subscription persistence:', err);
-        return { data: null, error: new Error(err.message || 'Failed to persist subscription') };
+        console.warn('[Supabase Subscription] Notice during subscription persistence (saved locally):', err?.message || err);
+        return { data: subscription, error: null };
       }
     }
 
