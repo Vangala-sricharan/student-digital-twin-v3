@@ -156,14 +156,28 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
           isDemo: false,
         };
 
+        // Check if there is any local cached data before resetting to empty arrays
+        const localCachedProjectsStr = localStorage.getItem(`sdt_user_${targetUserId}_projects`);
+        const localCachedStudentsStr = localStorage.getItem(`sdt_user_${targetUserId}_students`);
+        const localCachedSkillsStr = localStorage.getItem(`sdt_user_${targetUserId}_skills`);
+        const localCachedAchievementsStr = localStorage.getItem(`sdt_user_${targetUserId}_achievements`);
+        const localCachedGoalsStr = localStorage.getItem(`sdt_user_${targetUserId}_career_goals`);
+        const localActiveStudentId = localStorage.getItem(`sdt_user_${targetUserId}_active_student_id`);
+
+        const cachedProjects: ProjectItem[] = localCachedProjectsStr ? JSON.parse(localCachedProjectsStr) : [];
+        const cachedStudents: StudentProfile[] = localCachedStudentsStr ? JSON.parse(localCachedStudentsStr) : [];
+        const cachedSkills: SkillItem[] = localCachedSkillsStr ? JSON.parse(localCachedSkillsStr) : [];
+        const cachedAchievements: AchievementItem[] = localCachedAchievementsStr ? JSON.parse(localCachedAchievementsStr) : [];
+        const cachedGoals: CareerGoalItem[] = localCachedGoalsStr ? JSON.parse(localCachedGoalsStr) : [];
+
         setUserProfile(loadedProfile);
-        setStudentProfiles([]);
-        setAllSkills([]);
-        setAllProjects([]);
-        setAllAchievements([]);
-        setAllCareerGoals([]);
-        setActiveStudentProfileId(null);
-        setShowOnboarding(true);
+        setStudentProfiles(cachedStudents);
+        setAllSkills(cachedSkills);
+        setAllProjects(cachedProjects);
+        setAllAchievements(cachedAchievements);
+        setAllCareerGoals(cachedGoals);
+        setActiveStudentProfileId(localActiveStudentId || cachedStudents[0]?.id || null);
+        setShowOnboarding(!loadedProfile.isOnboarded && !loadedProfile.university);
       }
     } catch (err) {
       console.warn('Error loading student twin user data:', err);

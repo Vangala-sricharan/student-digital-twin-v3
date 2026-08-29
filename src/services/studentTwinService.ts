@@ -1046,16 +1046,21 @@ export const studentTwinService = {
 
       // If no student_twin_data bundle exists, check if basic profile exists in user metadata or local cache
       if (user.user_metadata?.university || user.user_metadata?.full_name || user.user_metadata?.profile_image_url) {
+        const localBundle = getLocalBundle();
+        if (localBundle && (localBundle.projects?.length || localBundle.students?.length || localBundle.skills?.length || localBundle.achievements?.length || localBundle.careerGoals?.length)) {
+          return { data: localBundle, error: null };
+        }
+
         const { data: profile } = await this.fetchUserProfile(userId);
         return {
           data: {
-            profile,
-            students: [],
-            skills: [],
-            projects: [],
-            achievements: [],
-            careerGoals: [],
-            activeStudentId: null,
+            profile: profile || (localBundle ? localBundle.profile : null),
+            students: localBundle?.students || [],
+            skills: localBundle?.skills || [],
+            projects: localBundle?.projects || [],
+            achievements: localBundle?.achievements || [],
+            careerGoals: localBundle?.careerGoals || [],
+            activeStudentId: localBundle?.activeStudentId || null,
           },
           error: null,
         };
