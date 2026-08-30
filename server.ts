@@ -16,6 +16,15 @@ import internshipAnalyzeHandler from './api/ai/internship/analyze.ts';
 import roadmapGenerateHandler from './api/ai/roadmap/generate.ts';
 import simulatorRunHandler from './api/ai/simulator/run.ts';
 import portfolioGenerateHandler from './api/ai/portfolio/generate.ts';
+import twinLoadHandler from './api/twin/load.ts';
+import twinSyncHandler from './api/twin/sync.ts';
+import twinItemHandler from './api/twin/item.ts';
+import twinProfileHandler from './api/twin/profile.ts';
+import twinStudentsHandler from './api/twin/students.ts';
+import twinSkillsHandler from './api/twin/skills.ts';
+import twinProjectsHandler from './api/twin/projects.ts';
+import twinAchievementsHandler from './api/twin/achievements.ts';
+import twinCareerGoalsHandler from './api/twin/career-goals.ts';
 
 dotenv.config();
 
@@ -26,10 +35,41 @@ const PORT = 3000;
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
+// Comprehensive Layer Diagnostic Logger (Never logs tokens or secrets)
+app.use((req, res, next) => {
+  const method = req.method;
+  const path = req.path;
+  if (path.startsWith('/api/')) {
+    const queryStr = req.url.includes('?') ? req.url.split('?')[1] : '';
+    const querySize = Buffer.byteLength(queryStr || '', 'utf8');
+    const bodySize = req.body ? Buffer.byteLength(JSON.stringify(req.body), 'utf8') : 0;
+    const authHeaderPresent = Boolean(req.headers['authorization'] || req.headers['Authorization']);
+
+    console.log(
+      `[REQUEST START]\nMETHOD: ${method}\nPATH: ${path}\nQUERY PARAMETERS SIZE: ${querySize} bytes\nREQUEST BODY SIZE: ${bodySize} bytes\nAUTH HEADER PRESENT: ${authHeaderPresent}`
+    );
+
+    res.on('finish', () => {
+      console.log(`[FINAL API RESPONSE STATUS] ${method} ${path} -> Status: ${res.statusCode}`);
+    });
+  }
+  next();
+});
+
 // ==============================================================================
 // SERVERLESS FUNCTION ROUTES DELEGATION (Matches Vercel /api/* routing)
 // ==============================================================================
 app.all('/api/health', (req, res) => healthHandler(req as any, res as any));
+app.all('/api/twin/profile', (req, res) => twinProfileHandler(req as any, res as any));
+app.all('/api/twin/students', (req, res) => twinStudentsHandler(req as any, res as any));
+app.all('/api/twin/student-twins', (req, res) => twinStudentsHandler(req as any, res as any));
+app.all('/api/twin/skills', (req, res) => twinSkillsHandler(req as any, res as any));
+app.all('/api/twin/projects', (req, res) => twinProjectsHandler(req as any, res as any));
+app.all('/api/twin/achievements', (req, res) => twinAchievementsHandler(req as any, res as any));
+app.all('/api/twin/career-goals', (req, res) => twinCareerGoalsHandler(req as any, res as any));
+app.all('/api/twin/load', (req, res) => twinLoadHandler(req as any, res as any));
+app.all('/api/twin/sync', (req, res) => twinSyncHandler(req as any, res as any));
+app.all('/api/twin/item', (req, res) => twinItemHandler(req as any, res as any));
 app.all('/api/ai/assistant', (req, res) => assistantHandler(req as any, res as any));
 app.all('/api/ai/resume/generate-section', (req, res) => resumeSectionHandler(req as any, res as any));
 app.all('/api/ai/resume/analyze', (req, res) => resumeAnalyzeHandler(req as any, res as any));

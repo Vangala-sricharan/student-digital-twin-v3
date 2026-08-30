@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { useDemo } from './DemoContext';
 import { studentTwinService } from '../services/studentTwinService';
@@ -97,8 +97,11 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState<boolean>(false);
 
+  const lastHydratedUserIdRef = useRef<string | null>(null);
+  const isHydratingRef = useRef<boolean>(false);
+
   // Load all user records from Supabase / cache when authenticated user changes
-  const loadUserData = useCallback(async (targetUserId: string) => {
+  const loadUserData = useCallback(async (targetUserId: string, force = false) => {
     if (!targetUserId) {
       setUserProfile(null);
       setStudentProfiles([]);
@@ -108,12 +111,18 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setAllAchievements([]);
       setAllCareerGoals([]);
       setIsLoading(false);
+      lastHydratedUserIdRef.current = null;
       return;
     }
 
+    if (isHydratingRef.current && !force) {
+      return;
+    }
+
+    isHydratingRef.current = true;
     setIsLoading(true);
     try {
-      // 1. Fetch complete cloud bundle (user metadata & local cache)
+      // 1. Fetch complete cloud bundle (database tables + local user-scoped cache)
       const { data: cloudBundle } = await studentTwinService.fetchCloudStudentTwin(targetUserId);
 
       if (cloudBundle && cloudBundle.profile) {
@@ -137,12 +146,12 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         );
         setShowOnboarding(!hasOnboardingDone);
       } else {
-        // Brand new user with no cloud data yet
+        // Fallback to basic profile & cached data without clearing user state
         const { data: profile } = await studentTwinService.fetchUserProfile(targetUserId);
         const loadedProfile = profile || {
           id: targetUserId,
-          email: user?.email || '',
-          fullName: user?.user_metadata?.full_name || user?.user_metadata?.name || '',
+          email: '',
+          fullName: 'Student User',
           university: '',
           degree: '',
           branch: '',
@@ -152,11 +161,10 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
           targetRole: '',
           plan: 'free' as const,
           isOnboarded: false,
-          createdAt: user?.created_at || new Date().toISOString(),
+          createdAt: new Date().toISOString(),
           isDemo: false,
         };
 
-        // Check if there is any local cached data before resetting to empty arrays
         const localCachedProjectsStr = localStorage.getItem(`sdt_user_${targetUserId}_projects`);
         const localCachedStudentsStr = localStorage.getItem(`sdt_user_${targetUserId}_students`);
         const localCachedSkillsStr = localStorage.getItem(`sdt_user_${targetUserId}_skills`);
@@ -179,19 +187,24 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
         setActiveStudentProfileId(localActiveStudentId || cachedStudents[0]?.id || null);
         setShowOnboarding(!loadedProfile.isOnboarded && !loadedProfile.university);
       }
+      lastHydratedUserIdRef.current = targetUserId;
     } catch (err) {
       console.warn('Error loading student twin user data:', err);
     } finally {
       setIsLoading(false);
+      isHydratingRef.current = false;
     }
-  }, [user]);
+  }, []);
 
   // Handle Authentication Changes & Strict Isolation (Clear stale state when user changes or load demo data)
   useEffect(() => {
     if (isAuthenticated && userId) {
-      loadUserData(userId);
+      if (lastHydratedUserIdRef.current !== userId) {
+        loadUserData(userId);
+      }
     } else if (isDemoMode) {
       // Initialize isolated demo data for Sricharan Vangala showcase
+      lastHydratedUserIdRef.current = 'demo';
       setUserProfile(demoProfile || DEMO_USER_PROFILE);
       setStudentProfiles(DEMO_STUDENT_PROFILES);
       setActiveStudentProfileId(DEMO_STUDENT_PROFILES[0].id);
@@ -203,6 +216,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
       setIsLoading(false);
     } else {
       // Clear all state on logout
+      lastHydratedUserIdRef.current = null;
       setUserProfile(null);
       setStudentProfiles([]);
       setActiveStudentProfileId(null);
@@ -760,20 +774,38 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   // Explicit Cloud Upload (Requirement 17)
   const uploadDataToCloud = async (overrideProfile?: Partial<UserProfile>): Promise<{ success: boolean; message: string; error: Error | null }> => {
-    if (!userId || !userProfile) {
+    if (!userId) {
       return { success: false, message: 'User is not logged in', error: new Error('Not authenticated') };
     }
+
+    const baseProfile: UserProfile = userProfile || {
+      id: userId,
+      email: user?.email || '',
+      fullName: user?.user_metadata?.full_name || user?.user_metadata?.name || 'Student User',
+      university: user?.user_metadata?.university || '',
+      degree: user?.user_metadata?.degree || 'B.Tech',
+      branch: user?.user_metadata?.branch || '',
+      program: '',
+      year: user?.user_metadata?.year || '1st Year',
+      expectedGraduationYear: user?.user_metadata?.expected_graduation_year || '',
+      careerGoal: user?.user_metadata?.career_goal || '',
+      targetRole: user?.user_metadata?.target_role || '',
+      plan: 'free',
+      isOnboarded: true,
+      createdAt: user?.created_at || new Date().toISOString(),
+      isDemo: false,
+    };
 
     setIsSyncing(true);
     setSyncStatus('syncing');
     setSyncMessage('Uploading student twin records to Supabase...');
 
-    const existingImage = userProfile.profileImageUrl || userProfile.avatarUrl || '';
+    const existingImage = baseProfile.profileImageUrl || baseProfile.avatarUrl || '';
     const incomingImage = overrideProfile?.profileImageUrl !== undefined ? overrideProfile.profileImageUrl : (overrideProfile?.avatarUrl !== undefined ? overrideProfile.avatarUrl : existingImage);
     const effectiveImage = incomingImage || existingImage;
 
     const profileToUpload: UserProfile = {
-      ...userProfile,
+      ...baseProfile,
       ...(overrideProfile || {}),
       profileImageUrl: effectiveImage,
       avatarUrl: effectiveImage,
@@ -972,7 +1004,7 @@ export const StudentTwinProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
   const refreshData = async () => {
     if (userId) {
-      await loadUserData(userId);
+      await loadUserData(userId, true);
     }
   };
 

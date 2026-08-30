@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   Code2,
@@ -71,6 +71,45 @@ import { PartPlaceholder } from './components/dashboard/PartPlaceholder';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 
+const INITIAL_LOADING_MESSAGES = [
+  'AI ENGINES ARE ACCELERATING... ⚡',
+  'AI ENGINE IS ACTIVE !!',
+  'Initializing 11 AI engines...',
+  'Connecting to Student Twin Core...',
+  'Loading Career Intelligence Engine...',
+  'Loading Skills & DSA Engine...',
+  'Loading Project Analysis Engine...',
+  'Loading LinkedIn Readiness Engine...',
+  'Loading GitHub Readiness Engine...',
+  'Loading Resume & ATS Engine...',
+  'Loading Syllabus Intelligence Engine...',
+  'Loading Career Roadmap Engine...',
+  'Loading Internship Readiness Engine...',
+  'Loading Career Simulation Engine...',
+  'Synchronizing Student Twin...',
+  'System Ready ✓',
+];
+
+const InitialLoadingScreen: React.FC = () => {
+  const [msgIndex, setMsgIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMsgIndex((prev) => (prev < INITIAL_LOADING_MESSAGES.length - 1 ? prev + 1 : prev));
+    }, 140);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center text-[var(--text-primary)]">
+      <LoadingSpinner size="lg" />
+      <p className="mt-4 text-xs font-mono text-[var(--text-muted)] text-center transition-all duration-150">
+        {INITIAL_LOADING_MESSAGES[msgIndex]}
+      </p>
+    </div>
+  );
+};
+
 const MainAppContent: React.FC = () => {
   const { user, profile, isAuthenticated, isLoading: isAuthLoading, signOut } = useAuth();
   const { isDemoMode, enterDemo, exitDemo, demoProfile } = useDemo();
@@ -89,14 +128,7 @@ const MainAppContent: React.FC = () => {
 
   // Loading state
   if (isAuthLoading || (isAuthenticated && isTwinLoading && !twinProfile)) {
-    return (
-      <div className="min-h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center text-[var(--text-primary)]">
-        <LoadingSpinner size="lg" />
-        <p className="mt-4 text-xs font-mono text-[var(--text-muted)]">
-          Initializing Student Digital Twin OS...
-        </p>
-      </div>
-    );
+    return <InitialLoadingScreen />;
   }
 
   // Handle Demo Mode View
