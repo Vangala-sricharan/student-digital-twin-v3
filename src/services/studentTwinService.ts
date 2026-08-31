@@ -74,16 +74,22 @@ export const logTwinApiDiag = (
 /**
  * Get active Supabase JWT Bearer token for serverless authentication
  */
-async function getAuthToken(): Promise<string | null> {
+export async function getFreshAuthToken(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getSession();
-    let token = data?.session?.access_token;
-    if (!token) {
+    let session = data?.session;
+
+    // Proactively refresh if session is missing or within 30s of expiry
+    if (!session || (session.expires_at && session.expires_at * 1000 < Date.now() + 30000)) {
       try {
         const { data: refreshed } = await supabase.auth.refreshSession();
-        token = refreshed?.session?.access_token;
+        if (refreshed?.session) {
+          session = refreshed.session;
+        }
       } catch {}
     }
+
+    let token = session?.access_token;
     if (!token) return null;
     
     token = String(token).trim();
@@ -97,6 +103,10 @@ async function getAuthToken(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function getAuthToken(): Promise<string | null> {
+  return getFreshAuthToken();
 }
 
 /**

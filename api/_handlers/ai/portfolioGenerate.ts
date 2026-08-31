@@ -1,9 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { callGeminiWithRetry, cleanAndParseJSON, handleApiError } from '../../_utils/gemini.js';
+import { authenticateRequest } from '../../_utils/supabaseServer.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  const { authenticated, userId, error: authError } = await authenticateRequest(req);
+  if (!authenticated || !userId) {
+    return res.status(401).json({
+      success: false,
+      error: authError || 'Unauthorized — Authenticated user session required',
+    });
   }
 
   try {

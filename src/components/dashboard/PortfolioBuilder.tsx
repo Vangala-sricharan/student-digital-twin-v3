@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { useStudentTwin } from '../../contexts/StudentTwinContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { getFreshAuthToken } from '../../services/studentTwinService';
+import { supabase } from '../../lib/supabase';
 import {
   UserPortfolioRecord,
   GeneratedPortfolioData,
@@ -355,11 +357,28 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
         })),
       };
 
+      // 1. Obtain fresh authenticated Supabase access token for the request
+      let accessToken: string | null = null;
+      try {
+        accessToken = await getFreshAuthToken();
+      } catch (authErr) {
+        console.warn('[PortfolioBuilder] Failed to retrieve fresh auth token:', authErr);
+      }
+
+      if (!accessToken && !isDemo) {
+        throw new Error('Portfolio generation authentication failed. Please sign in again.');
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
       const response = await fetch('/api/ai/portfolio/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(payload),
         credentials: 'omit',
         signal: abortController.signal,
@@ -379,7 +398,24 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
       }
 
       if (!response.ok) {
-        const errorMsg = json?.error || json?.message || `HTTP ${response.status}: Failed to generate portfolio package.`;
+        let errorMsg = `HTTP ${response.status}: Failed to generate portfolio package.`;
+        if (json) {
+          if (typeof json.error === 'string') {
+            errorMsg = json.error;
+          } else if (typeof json.message === 'string') {
+            errorMsg = json.message;
+          } else if (json.error && typeof json.error === 'object') {
+            errorMsg = json.error.message || json.error.error || errorMsg;
+          }
+        }
+        if (
+          response.status === 401 ||
+          errorMsg.toLowerCase().includes('unauthorized') ||
+          errorMsg.toLowerCase().includes('auth') ||
+          errorMsg.toLowerCase().includes('token')
+        ) {
+          errorMsg = 'Portfolio generation authentication failed. Please sign in again.';
+        }
         console.error('[PortfolioBuilder] HTTP error from /api/ai/portfolio/generate:', {
           status: response.status,
           statusText: response.statusText,
@@ -488,15 +524,32 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
 
       // Only update error UI if this is the active request
       if (generationRequestIdRef.current === currentRequestId) {
+        let displayError = 'Portfolio generation failed. Please try again.';
+        if (typeof err === 'string') {
+          displayError = err;
+        } else if (err?.message && typeof err.message === 'string') {
+          displayError = err.message;
+        } else if (err?.error) {
+          displayError = typeof err.error === 'string' ? err.error : (err.error.message || displayError);
+        }
+
+        if (
+          displayError === '[object Object]' ||
+          displayError.includes('[object Object]') ||
+          displayError.toLowerCase().includes('unauthorized') ||
+          displayError.toLowerCase().includes('jwt')
+        ) {
+          displayError = 'Portfolio generation authentication failed. Please sign in again.';
+        }
+
         console.error('[PortfolioBuilder] generation pipeline error:', {
-          message: err.message,
-          stack: err.stack,
+          message: displayError,
           rawError: err,
         });
         setIsGenerating(false);
         setStatusMessage({
           type: 'error',
-          text: err.message || 'Portfolio generation failed. Please try again.',
+          text: displayError,
         });
       }
     }
