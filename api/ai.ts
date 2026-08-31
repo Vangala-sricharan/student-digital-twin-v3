@@ -13,19 +13,22 @@ import portfolioGenerateHandler from './_handlers/ai/portfolioGenerate.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Determine action from query or URL
-  const actionQuery = Array.isArray(req.query.action) ? req.query.action.join('/') : req.query.action;
+  const actionQuery = Array.isArray(req.query?.action) ? req.query?.action.join('/') : (req.query?.action as string);
   let action = actionQuery || '';
 
-  if (!action && req.url) {
-    const cleanUrl = req.url.split('?')[0];
-    const match = cleanUrl.match(/^\/api\/ai\/(.+)$/);
+  const rawUrl = req.url || (req as any).originalUrl || '';
+  if (!action && rawUrl) {
+    const cleanUrl = rawUrl.split('?')[0];
+    const match = cleanUrl.match(/(?:\/api\/ai|\/ai)\/(.+)$/);
     if (match) {
       action = match[1];
+    } else if (cleanUrl.startsWith('/')) {
+      action = cleanUrl.replace(/^\/+/, '');
     }
   }
 
   // Normalize action (strip leading/trailing slashes)
-  action = action.replace(/^\/+|\/+$/g, '');
+  action = (action || '').replace(/^\/+|\/+$/g, '');
 
   switch (action) {
     case 'assistant':

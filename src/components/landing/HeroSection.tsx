@@ -145,7 +145,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
                 <div className="grid grid-cols-2 gap-2">
                   <a
                     id="hero-demo-github-link"
-                    href="https://github.com/Sricharan-Vangala"
+                    href="https://github.com/Vangala-sricharan"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"
@@ -159,7 +159,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
                   <a
                     id="hero-demo-linkedin-link"
-                    href="https://linkedin.com/in/sricharan-vangala"
+                    href="https://www.linkedin.com/in/sri-charan-vangala-a7453b384/"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-300 hover:text-white transition-colors cursor-pointer"

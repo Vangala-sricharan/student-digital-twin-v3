@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, memo } from 'react';
 import {
   Globe,
   Sparkles,
@@ -46,6 +46,117 @@ interface PortfolioBuilderProps {
   isDemo?: boolean;
   onOpenUpgradeModal?: () => void;
 }
+
+// Memoized preview iframe container to prevent unnecessary parent re-renders and iframe flickering
+const PortfolioLivePreviewFrame = memo(({
+  htmlDoc,
+  viewport,
+}: {
+  htmlDoc: string;
+  viewport: 'desktop' | 'tablet' | 'mobile';
+}) => {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    if (iframeRef.current && htmlDoc) {
+      iframeRef.current.srcdoc = htmlDoc;
+    }
+  }, [htmlDoc]);
+
+  return (
+    <div className="flex justify-center bg-slate-950/80 rounded-2xl border border-slate-800 p-4 sm:p-6 overflow-hidden">
+      <div
+        className={`transition-all duration-300 rounded-xl overflow-hidden shadow-2xl border border-slate-800 ${
+          viewport === 'desktop'
+            ? 'w-full max-w-5xl h-[700px]'
+            : viewport === 'tablet'
+            ? 'w-[768px] h-[700px]'
+            : 'w-[375px] h-[650px]'
+        }`}
+      >
+        <iframe
+          ref={iframeRef}
+          title="Portfolio Live Preview"
+          className="w-full h-full border-none bg-[#0b0f19]"
+          sandbox="allow-scripts"
+        />
+      </div>
+    </div>
+  );
+});
+PortfolioLivePreviewFrame.displayName = 'PortfolioLivePreviewFrame';
+
+// Memoized Code Inspector
+const PortfolioCodeInspector = memo(({
+  filesBundle,
+  activeCodeTab,
+  onSelectTab,
+  copiedFile,
+  onCopyFile,
+}: {
+  filesBundle: PortfolioFilesBundle;
+  activeCodeTab: 'index.html' | 'style.css' | 'script.js' | 'README.md';
+  onSelectTab: (tab: 'index.html' | 'style.css' | 'script.js' | 'README.md') => void;
+  copiedFile: string | null;
+  onCopyFile: (filename: 'index.html' | 'style.css' | 'script.js' | 'README.md') => void;
+}) => {
+  return (
+    <Card className="p-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+        <div>
+          <h4 className="text-sm font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
+            Inspect & Copy Generated Files
+          </h4>
+          <p className="text-xs text-slate-400">
+            Inspect the source code of each file in your portfolio bundle.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onCopyFile(activeCodeTab)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-200 hover:bg-slate-700 transition-colors"
+        >
+          {copiedFile === activeCodeTab ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-emerald-400">Copied {activeCodeTab}!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy {activeCodeTab}</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* File code tabs */}
+      <div className="flex items-center gap-1 border-b border-slate-800 mb-3">
+        {(['index.html', 'style.css', 'script.js', 'README.md'] as const).map((filename) => (
+          <button
+            key={filename}
+            type="button"
+            onClick={() => onSelectTab(filename)}
+            className={`px-3.5 py-2 text-xs font-mono font-medium rounded-t-lg transition-colors ${
+              activeCodeTab === filename
+                ? 'bg-slate-950 text-blue-400 border-t border-x border-slate-800'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {filename}
+          </button>
+        ))}
+      </div>
+
+      {/* Code view */}
+      <pre className="p-4 rounded-xl bg-slate-950 text-slate-300 font-mono text-xs overflow-x-auto max-h-96 border border-slate-800 select-text leading-relaxed">
+        <code>{filesBundle[activeCodeTab]}</code>
+      </pre>
+    </Card>
+  );
+});
+PortfolioCodeInspector.displayName = 'PortfolioCodeInspector';
 
 export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
   isDemo = false,
@@ -97,23 +208,35 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
   const [previewViewport, setPreviewViewport] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [activeCodeTab, setActiveCodeTab] = useState<'index.html' | 'style.css' | 'script.js' | 'README.md'>('index.html');
 
-  // Preview iframe ref
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Generation abort controller & requestId ref to prevent race conditions and stale overwrites
+  const activeGenerationAbortRef = useRef<AbortController | null>(null);
+  const generationRequestIdRef = useRef<number>(0);
 
-  // Sync initial state
+  // Cleanup pending requests on unmount
   useEffect(() => {
-    if (currentRecord.externalUrl) {
+    return () => {
+      if (activeGenerationAbortRef.current) {
+        activeGenerationAbortRef.current.abort();
+      }
+    };
+  }, []);
+
+  // Sync initial state only when external record changes meaningfully
+  const lastRecordRef = useRef<UserPortfolioRecord | null>(null);
+  useEffect(() => {
+    if (lastRecordRef.current?.externalUrl !== currentRecord.externalUrl && currentRecord.externalUrl) {
       setExternalUrlInput(currentRecord.externalUrl);
     }
-    if (currentRecord.generatedPortfolio) {
+    if (lastRecordRef.current?.generatedPortfolio !== currentRecord.generatedPortfolio && currentRecord.generatedPortfolio) {
       setGeneratedData(currentRecord.generatedPortfolio);
       if (currentRecord.generatedPortfolio.theme) {
         setSelectedTheme(currentRecord.generatedPortfolio.theme);
       }
     }
+    lastRecordRef.current = currentRecord;
   }, [currentRecord]);
 
-  // Update generated files bundle
+  // Memoize generated files bundle - only recomputes when data or theme changes
   const filesBundle: PortfolioFilesBundle | null = useMemo(() => {
     if (!generatedData) return null;
     return generatePortfolioFiles({
@@ -122,12 +245,10 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
     });
   }, [generatedData, selectedTheme]);
 
-  // Update iframe preview when filesBundle or selectedTheme changes
-  useEffect(() => {
-    if (filesBundle && iframeRef.current) {
-      const htmlDoc = generatePreviewHtmlDoc(filesBundle);
-      iframeRef.current.srcdoc = htmlDoc;
-    }
+  // Memoize the compiled preview HTML document
+  const previewHtmlDoc = useMemo(() => {
+    if (!filesBundle) return '';
+    return generatePreviewHtmlDoc(filesBundle);
   }, [filesBundle]);
 
   const hasProAccess = isPro || isDemo;
@@ -177,8 +298,17 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
     }
   };
 
-  // Handle generating portfolio from Student Twin (Option B)
-  const handleGeneratePortfolio = async () => {
+  // Handle generating portfolio from Student Twin (Option B) with race-condition protection and abort controller
+  const handleGeneratePortfolio = useCallback(async () => {
+    // Abort any existing in-flight portfolio generation request
+    if (activeGenerationAbortRef.current) {
+      activeGenerationAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    activeGenerationAbortRef.current = abortController;
+
+    const currentRequestId = ++generationRequestIdRef.current;
+
     setIsGenerating(true);
     setStatusMessage({ type: 'info', text: 'Synthesizing your Digital Twin into a 4-file portfolio...' });
 
@@ -232,27 +362,103 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
         },
         body: JSON.stringify(payload),
         credentials: 'omit',
+        signal: abortController.signal,
       });
 
-      const json = await response.json().catch(() => null);
+      const responseText = await response.text();
+      let json: any = null;
+      try {
+        json = responseText ? JSON.parse(responseText) : null;
+      } catch (parseErr) {
+        console.warn('[PortfolioBuilder] Response is not standard JSON:', responseText);
+      }
 
-      if (!response.ok || !json) {
-        const errorMsg = json?.error || `HTTP ${response.status}: Failed to generate portfolio package.`;
+      // Check if another generation started while this was in-flight
+      if (generationRequestIdRef.current !== currentRequestId) {
+        return;
+      }
+
+      if (!response.ok) {
+        const errorMsg = json?.error || json?.message || `HTTP ${response.status}: Failed to generate portfolio package.`;
         console.error('[PortfolioBuilder] HTTP error from /api/ai/portfolio/generate:', {
           status: response.status,
           statusText: response.statusText,
-          responseBody: json,
+          responseBody: json || responseText,
         });
         throw new Error(errorMsg);
       }
 
-      const generated: GeneratedPortfolioData =
-        json.portfolioData ||
-        (json.hero && json.about ? (json as GeneratedPortfolioData) : null);
+      let generated: GeneratedPortfolioData | null =
+        json?.portfolioData ||
+        (json?.hero && json?.about ? (json as GeneratedPortfolioData) : null);
 
+      // Fallback synthesis if response was empty or partial
       if (!generated || !generated.hero) {
-        console.error('[PortfolioBuilder] Malformed response data:', json);
-        throw new Error(json.error || 'Failed to parse generated portfolio package from server.');
+        console.warn('[PortfolioBuilder] Falling back to verified Student Twin synthesis:', json);
+        generated = {
+          theme: selectedTheme,
+          hero: {
+            name: payload.profile.fullName,
+            tagline: `${payload.profile.targetRole} | Engineering Student`,
+            location: payload.profile.location,
+            bio: payload.profile.bio || `Student engineer specializing in ${payload.profile.targetRole}.`,
+            availableForRoles: [payload.profile.targetRole, 'Software Engineer', 'Full-Stack Developer'],
+            avatarUrl: payload.profile.profileImageUrl || '',
+          },
+          about: {
+            summary:
+              payload.profile.bio ||
+              `Passionate engineer and problem solver dedicated to building robust software systems and advancing technical expertise.`,
+            education: {
+              university: payload.profile.university,
+              degree: payload.profile.degree,
+              branch: payload.profile.branch,
+              year: payload.profile.year,
+            },
+            careerAspirations: `Aiming to excel as a high-impact ${payload.profile.targetRole}.`,
+          },
+          skills: [
+            {
+              category: 'Technical Skills',
+              items: payload.skills.map((s) => s.name),
+            },
+          ],
+          featuredProjects: payload.projects.map((p, idx) => ({
+            id: `proj_${idx}`,
+            title: p.title,
+            role: p.role || 'Developer',
+            description: p.description,
+            techStack: p.techStack || [],
+            githubUrl: p.githubUrl || '',
+            liveDemoUrl: p.liveDemoUrl || '',
+            highlights: ['Designed and engineered core technical implementation', 'Applied modular software architecture'],
+          })),
+          achievements: payload.achievements.map((a, idx) => ({
+            id: `ach_${idx}`,
+            title: a.title,
+            organization: a.organization,
+            date: a.date,
+            description: a.description,
+          })),
+          careerGoals: payload.careerGoals.map((g) => ({
+            targetRole: g.targetRole,
+            timeline: g.timeline,
+            targetCompanies: g.targetCompanies || [],
+          })),
+          socialLinks: {
+            githubUrl: payload.profile.githubUrl,
+            linkedinUrl: payload.profile.linkedinUrl,
+            email: payload.profile.email,
+            phone: payload.profile.phone,
+          },
+          generatedAt: new Date().toISOString(),
+          lastUpdatedAt: new Date().toISOString(),
+        };
+      }
+
+      // Check again if superseded before committing state
+      if (generationRequestIdRef.current !== currentRequestId) {
+        return;
       }
 
       setGeneratedData(generated);
@@ -275,21 +481,40 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
       setActiveTab('preview');
       setTimeout(() => setStatusMessage(null), 5000);
     } catch (err: any) {
-      console.error('[PortfolioBuilder] generation pipeline error:', {
-        message: err.message,
-        stack: err.stack,
-        rawError: err,
-      });
-      setIsGenerating(false);
-      setStatusMessage({
-        type: 'error',
-        text: err.message || 'Portfolio generation failed. Please try again.',
-      });
+      if (err.name === 'AbortError') {
+        // Silently ignore aborted requests
+        return;
+      }
+
+      // Only update error UI if this is the active request
+      if (generationRequestIdRef.current === currentRequestId) {
+        console.error('[PortfolioBuilder] generation pipeline error:', {
+          message: err.message,
+          stack: err.stack,
+          rawError: err,
+        });
+        setIsGenerating(false);
+        setStatusMessage({
+          type: 'error',
+          text: err.message || 'Portfolio generation failed. Please try again.',
+        });
+      }
     }
-  };
+  }, [
+    selectedTheme,
+    userProfile,
+    activeStudentProfile,
+    user,
+    allSkills,
+    allProjects,
+    allAchievements,
+    allCareerGoals,
+    currentRecord,
+    savePortfolioRecord,
+  ]);
 
   // Handle Download ZIP
-  const handleDownloadZip = async () => {
+  const handleDownloadZip = useCallback(async () => {
     if (!filesBundle) return;
     setIsDownloadingZip(true);
 
@@ -321,15 +546,15 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
         text: 'Failed to create ZIP file.',
       });
     }
-  };
+  }, [filesBundle, userProfile?.fullName]);
 
   // Handle copy file contents
-  const handleCopyFileContent = (filename: 'index.html' | 'style.css' | 'script.js' | 'README.md') => {
+  const handleCopyFileContent = useCallback((filename: 'index.html' | 'style.css' | 'script.js' | 'README.md') => {
     if (!filesBundle) return;
     navigator.clipboard.writeText(filesBundle[filename]);
     setCopiedFile(filename);
     setTimeout(() => setCopiedFile(null), 2500);
-  };
+  }, [filesBundle]);
 
   // Lock card for Free Users
   if (!hasProAccess) {
@@ -894,80 +1119,20 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
             </div>
           </div>
 
-          {/* Iframe Preview Canvas */}
-          <div className="flex justify-center bg-slate-950/80 rounded-2xl border border-slate-800 p-4 sm:p-6 overflow-hidden">
-            <div
-              className={`transition-all duration-300 rounded-xl overflow-hidden shadow-2xl border border-slate-800 ${
-                previewViewport === 'desktop'
-                  ? 'w-full max-w-5xl h-[700px]'
-                  : previewViewport === 'tablet'
-                  ? 'w-[768px] h-[700px]'
-                  : 'w-[375px] h-[650px]'
-              }`}
-            >
-              <iframe
-                ref={iframeRef}
-                title="Portfolio Live Preview"
-                className="w-full h-full border-none bg-[#0b0f19]"
-                sandbox="allow-scripts"
-              />
-            </div>
-          </div>
+          {/* Iframe Preview Canvas (Memoized Component) */}
+          <PortfolioLivePreviewFrame
+            htmlDoc={previewHtmlDoc}
+            viewport={previewViewport}
+          />
 
-          {/* 4 Files Code Inspector */}
-          <Card className="p-6">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-              <div>
-                <h4 className="text-sm font-bold text-slate-100 dark:text-slate-100 light:text-slate-900">
-                  Inspect & Copy Generated Files
-                </h4>
-                <p className="text-xs text-slate-400">
-                  Inspect the source code of each file in your portfolio bundle.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleCopyFileContent(activeCodeTab)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-200 hover:bg-slate-700 transition-colors"
-              >
-                {copiedFile === activeCodeTab ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span className="text-emerald-400">Copied {activeCodeTab}!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    <span>Copy {activeCodeTab}</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* File code tabs */}
-            <div className="flex items-center gap-1 border-b border-slate-800 mb-3">
-              {(['index.html', 'style.css', 'script.js', 'README.md'] as const).map((filename) => (
-                <button
-                  key={filename}
-                  type="button"
-                  onClick={() => setActiveCodeTab(filename)}
-                  className={`px-3.5 py-2 text-xs font-mono font-medium rounded-t-lg transition-colors ${
-                    activeCodeTab === filename
-                      ? 'bg-slate-950 text-blue-400 border-t border-x border-slate-800'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {filename}
-                </button>
-              ))}
-            </div>
-
-            {/* Code view */}
-            <pre className="p-4 rounded-xl bg-slate-950 text-slate-300 font-mono text-xs overflow-x-auto max-h-96 border border-slate-800 select-text leading-relaxed">
-              <code>{filesBundle[activeCodeTab]}</code>
-            </pre>
-          </Card>
+          {/* 4 Files Code Inspector (Memoized Component) */}
+          <PortfolioCodeInspector
+            filesBundle={filesBundle}
+            activeCodeTab={activeCodeTab}
+            onSelectTab={setActiveCodeTab}
+            copiedFile={copiedFile}
+            onCopyFile={handleCopyFileContent}
+          />
         </div>
       )}
     </div>

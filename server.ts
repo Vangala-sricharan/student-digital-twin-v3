@@ -41,9 +41,30 @@ app.use((req, res, next) => {
 // ==============================================================================
 // SERVERLESS FUNCTION ROUTES DELEGATION (Matches Vercel /api/* routing)
 // ==============================================================================
-app.all('/api/health', (req, res) => healthHandler(req as any, res as any));
-app.all('/api/twin*', (req, res) => twinHandler(req as any, res as any));
-app.all('/api/ai*', (req, res) => aiHandler(req as any, res as any));
+app.all('/api/health', async (req, res) => {
+  try {
+    await healthHandler(req as any, res as any);
+  } catch (err: any) {
+    console.error('[Health Handler Error]:', err);
+    if (!res.headersSent) res.status(500).json({ error: err?.message || 'Server error' });
+  }
+});
+app.all('/api/twin*', async (req, res) => {
+  try {
+    await twinHandler(req as any, res as any);
+  } catch (err: any) {
+    console.error('[Twin Handler Error]:', err);
+    if (!res.headersSent) res.status(500).json({ error: err?.message || 'Server error' });
+  }
+});
+app.all('/api/ai*', async (req, res) => {
+  try {
+    await aiHandler(req as any, res as any);
+  } catch (err: any) {
+    console.error('[AI Handler Error]:', err);
+    if (!res.headersSent) res.status(500).json({ error: err?.message || 'Server error' });
+  }
+});
 
 // ==============================================================================
 // VITE MIDDLEWARE & STATIC SERVING

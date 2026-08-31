@@ -169,12 +169,42 @@ export async function callGeminiStreamWithRetry(params: GeminiCallParams, maxRet
 export function cleanAndParseJSON(rawText: string): any {
   if (!rawText) throw new Error('Empty response from AI engine');
   let cleaned = rawText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+
+  // 1. Extract markdown fence if present
+  const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch && fenceMatch[1]) {
+    cleaned = fenceMatch[1].trim();
+  } else if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
   } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '');
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
   }
-  return JSON.parse(cleaned);
+
+  // 2. Try direct parse first
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    // 3. Fallback: Extract between first '{' and last '}' or '[' and ']'
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        const jsonCandidate = cleaned.substring(firstBrace, lastBrace + 1);
+        return JSON.parse(jsonCandidate);
+      } catch {}
+    }
+
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
+      try {
+        const jsonCandidate = cleaned.substring(firstBracket, lastBracket + 1);
+        return JSON.parse(jsonCandidate);
+      } catch {}
+    }
+
+    throw err;
+  }
 }
 
 // Standardized error responder for Vercel Serverless Functions

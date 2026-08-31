@@ -78,6 +78,12 @@ async function getAuthToken(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getSession();
     let token = data?.session?.access_token;
+    if (!token) {
+      try {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        token = refreshed?.session?.access_token;
+      } catch {}
+    }
     if (!token) return null;
     
     token = String(token).trim();
@@ -135,6 +141,8 @@ async function callTwinApi<T = any>(
   const containsNewline = Boolean(token && /[\r\n]/.test(token));
   const containsQuotes = Boolean(token && (token.startsWith('"') || token.endsWith('"') || token.startsWith("'") || token.endsWith("'")));
   const authHeaderBytes = authHeaderVal ? new TextEncoder().encode(`Authorization: ${authHeaderVal}`).length : 0;
+  const rawCookie = typeof document !== 'undefined' ? document.cookie : '';
+  const cookieBytes = rawCookie ? new TextEncoder().encode(rawCookie).length : 0;
 
   console.log('[TWIN JWT DIAGNOSTIC]', {
     tokenPresent,
@@ -144,6 +152,15 @@ async function callTwinApi<T = any>(
     containsNewline,
     containsQuotes,
     authorizationHeaderBytes: authHeaderBytes,
+  });
+
+  console.log('[CLOUD REQUEST DIAGNOSTIC]', {
+    method,
+    endpoint: `/api/twin?module=${moduleName}`,
+    tokenPresent,
+    authorizationHeaderBytes: authHeaderBytes,
+    cookieBytes,
+    credentialsMode: 'omit',
   });
 
   const hasBody = method === 'POST' || method === 'PUT' || (method === 'DELETE' && options.body);

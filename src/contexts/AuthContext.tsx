@@ -27,6 +27,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  const logAuthProviderDiag = (event: string, authUser: User | null, authSession: Session | null) => {
+    const provider = authUser?.app_metadata?.provider || authUser?.identities?.[0]?.provider || 'email';
+    const userId = authUser?.id || 'none';
+    const sessionPresent = Boolean(authSession);
+    const accessTokenPresent = Boolean(authSession?.access_token);
+    const tokenBytes = authSession?.access_token ? new TextEncoder().encode(authSession.access_token).length : 0;
+    const jwtSegments = authSession?.access_token ? authSession.access_token.split('.').length : 0;
+    const expiresAt = authSession?.expires_at ? new Date(authSession.expires_at * 1000).toISOString() : 'none';
+    const tokenExpired = authSession?.expires_at ? Date.now() / 1000 >= authSession.expires_at : false;
+
+    console.log('[AUTH PROVIDER DIAGNOSTIC]', {
+      provider,
+      userId,
+      sessionPresent,
+      accessTokenPresent,
+      tokenBytes,
+      jwtSegments,
+      tokenExpired,
+      expiresAt,
+      authEvent: event,
+      hydrationComplete: true,
+    });
+  };
+
   // Initialize auth state
   useEffect(() => {
     let mounted = true;
@@ -53,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (mounted) {
           setSession(initialSession);
           setUser(initialSession?.user ?? null);
-          console.log('[Supabase Auth] Initial session restored. Authenticated user ID:', initialSession?.user?.id || 'none');
+          logAuthProviderDiag('INITIAL_SESSION', initialSession?.user ?? null, initialSession);
           if (initialSession?.user) {
             setupUserProfile(initialSession.user);
           } else {
@@ -74,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Subscribe to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        console.log('[Supabase Auth] onAuthStateChange event:', event, 'Session user ID:', currentSession?.user?.id || 'none');
+        logAuthProviderDiag(event, currentSession?.user ?? null, currentSession);
         if (mounted) {
           setSession(currentSession);
           setUser(currentSession?.user ?? null);
@@ -200,12 +224,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       console.log('[Supabase Auth] signIn success! Authenticated user ID:', data.user?.id);
-      const { data: sessionCheck } = await supabase.auth.getSession();
-      console.log('[Supabase Auth] getSession() returns session:', Boolean(sessionCheck.session));
-
-      if (data.user) {
-        setupUserProfile(data.user);
+      if (data.session) {
+        setSession(data.session);
       }
+      if (data.user) {
+        setUser(data.user);
+        setupUserProfile(data.user);
+        logAuthProviderDiag('SIGNED_IN_EMAIL', data.user, data.session);
+      }
+      setIsLoading(false);
 
       return { error: null };
     } catch (err: any) {
@@ -248,6 +275,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       console.log('[Supabase Auth] signUp response: User ID:', data.user?.id, 'Session active:', Boolean(data.session));
+
+      if (data.session) {
+        setSession(data.session);
+      }
+      if (data.user) {
+        setUser(data.user);
+        setupUserProfile(data.user);
+        logAuthProviderDiag('SIGNED_UP_EMAIL', data.user, data.session);
+      }
 
       // Check if email confirmation is required by checking if user exists but session is null
       const needsConfirmation = !data.session && Boolean(data.user);

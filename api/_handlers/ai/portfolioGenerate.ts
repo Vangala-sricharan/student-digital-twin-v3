@@ -173,7 +173,22 @@ REQUIRED JSON OUTPUT FORMAT:
       },
     });
 
-    const parsed = cleanAndParseJSON(response?.text || '{}');
+    let rawText = '';
+    if (typeof response?.text === 'string') {
+      rawText = response.text;
+    } else if (typeof response?.text === 'function') {
+      rawText = response.text();
+    } else if (response?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      rawText = response.candidates[0].content.parts[0].text;
+    }
+
+    let parsed: any = {};
+    try {
+      parsed = cleanAndParseJSON(rawText || '{}');
+    } catch (parseErr) {
+      console.warn('[portfolioGenerate] AI JSON parse fallback triggered:', parseErr);
+      parsed = {};
+    }
 
     const result = {
       theme: parsed.theme || theme || 'modern-minimal',

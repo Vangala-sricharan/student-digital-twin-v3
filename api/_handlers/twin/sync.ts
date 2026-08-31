@@ -191,9 +191,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     };
 
+    // Step 1: Upsert parent user_profiles first
+    await upsertTable('user_profiles', [userProfilePayload]);
+
+    // Step 2: Upsert student_profiles parent before child entities
+    await upsertTable('student_profiles', studentListToUpsert);
+
+    // Step 3: Concurrently upsert child entities referencing parent tables
     await Promise.allSettled([
-      upsertTable('user_profiles', [userProfilePayload]),
-      upsertTable('student_profiles', studentListToUpsert),
       upsertTable('skills', skillsToUpsert),
       upsertTable('projects', projectsToUpsert),
       upsertTable('achievements', achievementsToUpsert),
