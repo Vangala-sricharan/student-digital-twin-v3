@@ -77,7 +77,8 @@ export const logTwinApiDiag = (
 async function getAuthToken(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getSession();
-    return data?.session?.access_token || null;
+    const token = data?.session?.access_token;
+    return token ? String(token).trim() : null;
   } catch {
     return null;
   }
@@ -112,9 +113,29 @@ async function callTwinApi<T = any>(
     'Content-Type': 'application/json',
   };
 
+  const authHeaderVal = token ? `Bearer ${token}` : '';
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers['Authorization'] = authHeaderVal;
   }
+
+  // Safe header diagnostics (Never logs actual token or cookie values)
+  const tokenBytes = token ? new TextEncoder().encode(token).length : 0;
+  const authHeaderBytes = authHeaderVal ? new TextEncoder().encode(`Authorization: ${authHeaderVal}`).length : 0;
+  const rawCookie = typeof document !== 'undefined' ? document.cookie : '';
+  const cookieBytes = rawCookie ? new TextEncoder().encode(rawCookie).length : 0;
+  const customHeaderBytes = Object.entries(headers).reduce(
+    (acc, [k, v]) => acc + new TextEncoder().encode(`${k}: ${v}`).length,
+    0
+  );
+
+  console.log('[TWIN AUTH REQUEST]', {
+    tokenPresent: Boolean(token),
+    tokenBytes,
+    authorizationHeaderBytes: authHeaderBytes,
+    cookieHeaderPresent: Boolean(rawCookie),
+    cookieHeaderBytes: cookieBytes,
+    totalCustomHeaderBytes: customHeaderBytes,
+  });
 
   const hasBody = method === 'POST' || method === 'PUT' || (method === 'DELETE' && options.body);
   const payloadStr = hasBody && options.body !== undefined ? JSON.stringify(options.body) : undefined;
@@ -133,6 +154,7 @@ async function callTwinApi<T = any>(
       method,
       headers,
       body: payloadStr,
+      credentials: 'omit',
     });
 
     const status = response.status;

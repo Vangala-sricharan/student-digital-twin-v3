@@ -31,6 +31,7 @@ async function postWithRetry<T>(url: string, body: any, maxRetries = 2): Promise
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        credentials: 'omit',
       });
 
       const resJson = await response.json().catch(() => ({}));

@@ -10,6 +10,12 @@ import loadHandler from './_handlers/twin/load.js';
 import syncHandler from './_handlers/twin/sync.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log('[TWIN_API_ENTRY_REACHED]', {
+    method: req.method,
+    url: req.url,
+    headersSize: req.headers ? JSON.stringify(req.headers).length : 0,
+    hasAuth: Boolean(req.headers.authorization),
+  });
   // Determine module from query or URL
   const moduleQuery = Array.isArray(req.query.module) ? req.query.module.join('/') : req.query.module;
   let mod = moduleQuery || '';

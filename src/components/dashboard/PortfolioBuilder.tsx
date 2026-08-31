@@ -231,6 +231,7 @@ export const PortfolioBuilder: React.FC<PortfolioBuilderProps> = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
+        credentials: 'omit',
       });
 
       const json = await response.json().catch(() => null);
