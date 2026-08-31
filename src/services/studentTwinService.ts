@@ -77,8 +77,17 @@ export const logTwinApiDiag = (
 async function getAuthToken(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getSession();
-    const token = data?.session?.access_token;
-    return token ? String(token).trim() : null;
+    let token = data?.session?.access_token;
+    if (!token) return null;
+    
+    token = String(token).trim();
+    if (token.startsWith('"') && token.endsWith('"')) {
+      token = token.slice(1, -1).trim();
+    }
+    if (token.startsWith('Bearer ')) {
+      token = token.substring(7).trim();
+    }
+    return token.replace(/[\r\n]/g, '') || null;
   } catch {
     return null;
   }
@@ -119,22 +128,22 @@ async function callTwinApi<T = any>(
   }
 
   // Safe header diagnostics (Never logs actual token or cookie values)
+  const tokenPresent = Boolean(token);
   const tokenBytes = token ? new TextEncoder().encode(token).length : 0;
+  const jwtSegments = token ? token.split('.').length : 0;
+  const containsWhitespace = Boolean(token && /\s/.test(token));
+  const containsNewline = Boolean(token && /[\r\n]/.test(token));
+  const containsQuotes = Boolean(token && (token.startsWith('"') || token.endsWith('"') || token.startsWith("'") || token.endsWith("'")));
   const authHeaderBytes = authHeaderVal ? new TextEncoder().encode(`Authorization: ${authHeaderVal}`).length : 0;
-  const rawCookie = typeof document !== 'undefined' ? document.cookie : '';
-  const cookieBytes = rawCookie ? new TextEncoder().encode(rawCookie).length : 0;
-  const customHeaderBytes = Object.entries(headers).reduce(
-    (acc, [k, v]) => acc + new TextEncoder().encode(`${k}: ${v}`).length,
-    0
-  );
 
-  console.log('[TWIN AUTH REQUEST]', {
-    tokenPresent: Boolean(token),
+  console.log('[TWIN JWT DIAGNOSTIC]', {
+    tokenPresent,
     tokenBytes,
+    jwtSegments,
+    containsWhitespace,
+    containsNewline,
+    containsQuotes,
     authorizationHeaderBytes: authHeaderBytes,
-    cookieHeaderPresent: Boolean(rawCookie),
-    cookieHeaderBytes: cookieBytes,
-    totalCustomHeaderBytes: customHeaderBytes,
   });
 
   const hasBody = method === 'POST' || method === 'PUT' || (method === 'DELETE' && options.body);
