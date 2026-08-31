@@ -8,7 +8,7 @@ import {
   updateSupabaseUserMetadata,
   getBridgeCache,
   setBridgeCache,
-} from '../_utils/supabaseServer.js';
+} from '../../_utils/supabaseServer.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST' && req.method !== 'DELETE') {

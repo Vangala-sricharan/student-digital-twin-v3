@@ -8,7 +8,6 @@ import {
   CareerGoalItem,
   SubscriptionRecord,
   PlanType,
-  OnboardingFormData,
 } from '../types';
 
 /**
@@ -34,51 +33,33 @@ const getEnv = (key: string): string => {
   return '';
 };
 
-const getSupabaseHost = (): string => {
+// Measure byte size of JSON payloads safely
+export const measurePayloadBytes = (payload: any): number => {
   try {
-    const url = getEnv('VITE_SUPABASE_URL') || getEnv('SUPABASE_URL');
-    if (url) {
-      const parsed = new URL(url);
-      return parsed.host;
-    }
-  } catch {}
-  return 'supabase-host';
+    if (!payload) return 0;
+    const str = typeof payload === 'string' ? payload : JSON.stringify(payload);
+    return new TextEncoder().encode(str).length;
+  } catch {
+    return 0;
+  }
 };
 
-// Standardized Modular Diagnostic Logger
-export const logCloudDiag = (
-  operation: 'Cloud Sync' | 'Cloud Load' | 'Cloud Delete',
+// Safe diagnostic logger for API operations (Never logs tokens, keys, passwords or sensitive data)
+export const logTwinApiDiag = (
+  operation: 'Cloud Sync' | 'Cloud Load' | 'Cloud Delete' | 'Cloud Upsert',
   method: string,
-  endpoint: string,
+  moduleName: string,
+  payloadBytes: number,
+  recordCount: number,
   status: number,
   result: 'SUCCESS' | 'FAILED',
-  count?: number,
   reason?: string | null
 ) => {
-  let countLabel: string | null = null;
-  if (count !== undefined) {
-    if (endpoint.includes('projects')) {
-      countLabel = operation === 'Cloud Load' ? `Projects loaded: ${count}` : `Projects: ${count}`;
-    } else if (endpoint.includes('skills')) {
-      countLabel = operation === 'Cloud Load' ? `Skills loaded: ${count}` : `Skills: ${count}`;
-    } else if (endpoint.includes('achievements')) {
-      countLabel = operation === 'Cloud Load' ? `Achievements loaded: ${count}` : `Achievements: ${count}`;
-    } else if (endpoint.includes('career-goals')) {
-      countLabel = operation === 'Cloud Load' ? `Career Goals loaded: ${count}` : `Career Goals: ${count}`;
-    } else if (endpoint.includes('students')) {
-      countLabel = operation === 'Cloud Load' ? `Students loaded: ${count}` : `Students: ${count}`;
-    } else if (endpoint.includes('profile')) {
-      countLabel = `Profile: ${count}`;
-    } else {
-      countLabel = `Records: ${count}`;
-    }
-  }
-
   const lines = [
     `[${operation}]`,
-    `${method} ${endpoint}`,
-    `Status: ${status || (result === 'SUCCESS' ? 200 : 'ERROR')}`,
-    countLabel,
+    `${method} /api/twin?module=${moduleName}`,
+    `Payload: ${payloadBytes} bytes | Records: ${recordCount}`,
+    `Status: ${status}`,
     `Result: ${result}`,
     reason ? `Reason: ${reason}` : null,
   ].filter(Boolean);
@@ -90,43 +71,123 @@ export const logCloudDiag = (
   }
 };
 
-const logSupabaseDiag = (operation: string, target: string, userId: string, error?: any, status?: any, via = 'Server/API') => {
-  const host = getSupabaseHostNameClient();
-  if (error) {
-    console.warn(`[Supabase Diag] Host: ${host} | User: ${userId || 'none'} | Op: ${operation} | Target: ${target} | Status: ${status || 'FAILED'} | Error:`, {
-      message: error?.message || String(error),
-      code: error?.code || error?.status || status,
-      details: error?.details || error?.hint || null,
-      via,
-    });
-  } else {
-    console.log(`[Supabase Diag] Host: ${host} | User: ${userId || 'none'} | Op: ${operation} | Target: ${target} | Status: ${status || 'OK'} | Via: ${via}`);
-  }
-};
-
-const getSupabaseHostNameClient = (): string => {
+/**
+ * Get active Supabase JWT Bearer token for serverless authentication
+ */
+async function getAuthToken(): Promise<string | null> {
   try {
-    const url = getEnv('VITE_SUPABASE_URL') || getEnv('SUPABASE_URL');
-    if (url) {
-      return new URL(url).host;
-    }
-  } catch {}
-  return 'sjrboaydzrfwwgvlifth.supabase.co';
-};
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.access_token || null;
+  } catch {
+    return null;
+  }
+}
 
-const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
-  let timer: any;
-  const timeoutPromise = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-  });
-  return Promise.race([
-    promise.then((res) => {
-      clearTimeout(timer);
-      return res;
-    }),
-    timeoutPromise,
-  ]);
-};
+/**
+ * Centralized authenticated dispatcher for /api/twin serverless endpoints
+ * Browser ➔ Vercel /api/twin?module=... ➔ Supabase ➔ PostgreSQL
+ */
+async function callTwinApi<T = any>(
+  moduleName: string,
+  options: {
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    body?: any;
+    params?: Record<string, string>;
+  } = {}
+): Promise<{ data: T | null; error: Error | null; success: boolean; count?: number; status?: number }> {
+  const method = options.method || 'GET';
+  const query = new URLSearchParams();
+  query.set('module', moduleName);
+
+  if (options.params) {
+    Object.entries(options.params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') {
+        query.set(k, v);
+      }
+    });
+  }
+
+  const token = await getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const hasBody = method === 'POST' || method === 'PUT' || (method === 'DELETE' && options.body);
+  const payloadStr = hasBody && options.body !== undefined ? JSON.stringify(options.body) : undefined;
+  const payloadBytes = payloadStr ? new TextEncoder().encode(payloadStr).length : 0;
+
+  const count = Array.isArray(options.body)
+    ? options.body.length
+    : options.body && typeof options.body === 'object'
+    ? Object.keys(options.body).length
+    : 0;
+
+  const url = `/api/twin?${query.toString()}`;
+
+  try {
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: payloadStr,
+    });
+
+    const status = response.status;
+    let json: any = null;
+
+    try {
+      const text = await response.text();
+      if (text) {
+        json = JSON.parse(text);
+      }
+    } catch {}
+
+    if (!response.ok) {
+      const errMsg = json?.error || json?.message || `HTTP ${status}: ${response.statusText}`;
+      logTwinApiDiag('Cloud Upsert', method, moduleName, payloadBytes, count, status, 'FAILED', errMsg);
+      return {
+        data: null,
+        error: new Error(errMsg),
+        success: false,
+        status,
+      };
+    }
+
+    const success = json?.success !== undefined ? Boolean(json.success) : true;
+    const responseCount = json?.count !== undefined ? json.count : count;
+
+    logTwinApiDiag(
+      method === 'GET' ? 'Cloud Load' : method === 'DELETE' ? 'Cloud Delete' : 'Cloud Upsert',
+      method,
+      moduleName,
+      payloadBytes,
+      responseCount,
+      status,
+      success ? 'SUCCESS' : 'FAILED',
+      json?.error || null
+    );
+
+    return {
+      data: json?.data !== undefined ? json.data : json,
+      error: null,
+      success,
+      count: responseCount,
+      status,
+    };
+  } catch (err: any) {
+    const errMsg = err?.message || 'Network fetch failed';
+    logTwinApiDiag('Cloud Upsert', method, moduleName, payloadBytes, count, 500, 'FAILED', errMsg);
+    return {
+      data: null,
+      error: err instanceof Error ? err : new Error(errMsg),
+      success: false,
+      status: 500,
+    };
+  }
+}
 
 export const studentTwinService = {
   // Helper to compress base64 images into lightweight thumbnails (< 15KB)
@@ -170,7 +231,7 @@ export const studentTwinService = {
     });
   },
 
-  // Helper to strip heavy base64 strings from Supabase Auth user_metadata to avoid payload/CORS failure (Failed to fetch)
+  // Helper to strip heavy base64 strings from payloads
   sanitizeMetadataPayload(data: any): any {
     if (!data || typeof data !== 'object') return data;
     if (Array.isArray(data)) {
@@ -230,7 +291,6 @@ export const studentTwinService = {
         if (blob.type) contentType = blob.type;
       }
 
-      // Fast Supabase Storage upload with hard 3.5-second timeout
       if (isSupabaseConfigured) {
         const ext = contentType.includes('png') ? 'png' : contentType.includes('webp') ? 'webp' : 'jpg';
         const filePath = `${userId}/avatar.${ext}`;
@@ -254,42 +314,23 @@ export const studentTwinService = {
                 return `${publicUrlData.publicUrl}?t=${Date.now()}`;
               }
             }
-          } catch (bucketErr) {
-            // Bucket upload failed or not permitted
-          }
+          } catch {}
           return null;
         };
 
-        const attemptUpload = async (): Promise<string | null> => {
-          if (cachedWorkingBucket) {
-            const url = await uploadToBucket(cachedWorkingBucket);
-            if (url) return url;
-            cachedWorkingBucket = null;
+        if (cachedWorkingBucket) {
+          const url = await uploadToBucket(cachedWorkingBucket);
+          if (url) return { url, error: null };
+          cachedWorkingBucket = null;
+        }
+
+        const bucketsToTry = ['avatars', 'profiles', 'user-avatars', 'public'];
+        for (const b of bucketsToTry) {
+          const url = await uploadToBucket(b);
+          if (url) {
+            cachedWorkingBucket = b;
+            return { url, error: null };
           }
-
-          const bucketsToTry = ['avatars', 'profiles', 'user-avatars', 'public'];
-          const results = await Promise.allSettled(
-            bucketsToTry.map(async (b) => {
-              const url = await uploadToBucket(b);
-              if (url) {
-                cachedWorkingBucket = b;
-                return url;
-              }
-              throw new Error(`Bucket ${b} failed`);
-            })
-          );
-
-          for (const res of results) {
-            if (res.status === 'fulfilled' && res.value) {
-              return res.value;
-            }
-          }
-          return null;
-        };
-
-        const storageUrl = await withTimeout(attemptUpload(), 3500, null);
-        if (storageUrl) {
-          return { url: storageUrl, error: null };
         }
       }
 
@@ -308,7 +349,6 @@ export const studentTwinService = {
         reader.readAsDataURL(blob);
       });
     } catch (err: any) {
-      console.warn('[Supabase Storage] uploadProfileImage notice:', err);
       return { url: typeof imageSource === 'string' ? imageSource : null, error: null };
     }
   },
@@ -327,69 +367,49 @@ export const studentTwinService = {
       } catch {}
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        // Read auth metadata safely from current session memory without extra network overhead
-        let user: any = null;
-        try {
-          const { data: sessionData } = await supabase.auth.getSession();
-          if (sessionData?.session?.user && sessionData.session.user.id === userId) {
-            user = sessionData.session.user;
-          }
-        } catch {}
+    try {
+      const { data, error } = await callTwinApi<UserProfile>('profile', {
+        method: 'GET',
+        params: { userId },
+      });
 
-        if (user && user.id === userId) {
-          const fullName = user.user_metadata?.full_name || 
-                           user.user_metadata?.name || 
-                           user.email?.split('@')[0] || 
-                           cachedProfile?.fullName ||
-                           'Student User';
-          
-          const rawPlan = user.user_metadata?.plan || cachedProfile?.plan || 'free';
-          const billingCycle = user.user_metadata?.billing_cycle || cachedProfile?.billingCycle;
-          const subscriptionStatus = user.user_metadata?.subscription_status || cachedProfile?.subscriptionStatus;
-          const subscriptionDetails = user.user_metadata?.subscription_data || cachedProfile?.subscriptionDetails;
-          const effectiveProfileImg = user.user_metadata?.profile_image_url || user.user_metadata?.avatar_url || user.user_metadata?.picture || cachedProfile?.profileImageUrl || cachedProfile?.avatarUrl || '';
+      if (!error && data) {
+        const profile: UserProfile = {
+          id: userId,
+          email: data.email || cachedProfile?.email || '',
+          fullName: data.fullName || (data as any).full_name || cachedProfile?.fullName || 'Student User',
+          university: data.university || cachedProfile?.university || '',
+          degree: data.degree || cachedProfile?.degree || 'B.Tech',
+          branch: data.branch || cachedProfile?.branch || '',
+          program: data.program || cachedProfile?.program || '',
+          year: data.year || cachedProfile?.year || '1st Year',
+          expectedGraduationYear: data.expectedGraduationYear || (data as any).expected_graduation_year || cachedProfile?.expectedGraduationYear || '',
+          careerGoal: data.careerGoal || (data as any).career_goal || cachedProfile?.careerGoal || '',
+          targetRole: data.targetRole || (data as any).target_role || cachedProfile?.targetRole || '',
+          currentSkills: data.currentSkills || (data as any).current_skills || cachedProfile?.currentSkills || '',
+          skills: data.skills || cachedProfile?.skills || [],
+          bio: data.bio || cachedProfile?.bio || '',
+          githubUrl: data.githubUrl || (data as any).github_url || cachedProfile?.githubUrl || '',
+          linkedinUrl: data.linkedinUrl || (data as any).linkedin_url || cachedProfile?.linkedinUrl || '',
+          phone: data.phone || cachedProfile?.phone || '',
+          location: data.location || cachedProfile?.location || '',
+          profileImageUrl: data.profileImageUrl || (data as any).profile_image_url || data.avatarUrl || cachedProfile?.profileImageUrl || '',
+          avatarUrl: data.avatarUrl || data.profileImageUrl || cachedProfile?.avatarUrl || '',
+          portfolio: data.portfolio || cachedProfile?.portfolio,
+          plan: (data.plan || cachedProfile?.plan || 'free') as PlanType,
+          billingCycle: data.billingCycle || (data as any).billing_cycle || cachedProfile?.billingCycle,
+          subscriptionStatus: data.subscriptionStatus || (data as any).subscription_status || cachedProfile?.subscriptionStatus,
+          subscriptionDetails: data.subscriptionDetails || (data as any).subscription_data || cachedProfile?.subscriptionDetails,
+          isOnboarded: data.isOnboarded !== undefined ? Boolean(data.isOnboarded) : Boolean(cachedProfile?.isOnboarded),
+          createdAt: data.createdAt || (data as any).created_at || cachedProfile?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isDemo: false,
+        };
 
-          const profile: UserProfile = {
-            id: user.id,
-            email: user.email || cachedProfile?.email || '',
-            fullName,
-            avatarUrl: effectiveProfileImg,
-            university: user.user_metadata?.university || cachedProfile?.university || '',
-            degree: user.user_metadata?.degree || cachedProfile?.degree || '',
-            branch: user.user_metadata?.branch || cachedProfile?.branch || '',
-            program: user.user_metadata?.program || (user.user_metadata?.degree && user.user_metadata?.branch ? `${user.user_metadata.degree} in ${user.user_metadata.branch}` : (cachedProfile?.program || '')),
-            year: user.user_metadata?.year || cachedProfile?.year || '',
-            expectedGraduationYear: user.user_metadata?.expected_graduation_year || user.user_metadata?.expectedGraduationYear || cachedProfile?.expectedGraduationYear || '',
-            careerGoal: user.user_metadata?.career_goal || user.user_metadata?.careerGoal || cachedProfile?.careerGoal || '',
-            targetRole: user.user_metadata?.target_role || user.user_metadata?.targetRole || cachedProfile?.targetRole || '',
-            currentSkills: user.user_metadata?.current_skills || user.user_metadata?.currentSkills || cachedProfile?.currentSkills || '',
-            skills: user.user_metadata?.skills || cachedProfile?.skills || [],
-            bio: user.user_metadata?.bio || cachedProfile?.bio || '',
-            githubUrl: user.user_metadata?.github_url || user.user_metadata?.githubUrl || cachedProfile?.githubUrl || '',
-            linkedinUrl: user.user_metadata?.linkedin_url || user.user_metadata?.linkedinUrl || cachedProfile?.linkedinUrl || '',
-            phone: user.user_metadata?.phone || cachedProfile?.phone || '',
-            location: user.user_metadata?.location || cachedProfile?.location || '',
-            profileImageUrl: effectiveProfileImg,
-            portfolio: user.user_metadata?.portfolio_data || cachedProfile?.portfolio,
-            plan: rawPlan as PlanType,
-            billingCycle,
-            subscriptionStatus,
-            subscriptionDetails,
-            isOnboarded: user.user_metadata?.is_onboarded ?? (cachedProfile?.isOnboarded ?? Boolean(user.user_metadata?.university && user.user_metadata?.year)),
-            createdAt: user.created_at || cachedProfile?.createdAt || new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            isDemo: false,
-          };
-
-          localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
-          return { data: profile, error: null };
-        }
-      } catch (err: any) {
-        // Fallback safely to cached local profile
+        localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
+        return { data: profile, error: null };
       }
-    }
+    } catch {}
 
     if (cachedProfile) {
       return { data: cachedProfile, error: null };
@@ -398,7 +418,10 @@ export const studentTwinService = {
     return { data: null, error: null };
   },
 
-  async upsertUserProfile(userId: string, profile: Partial<UserProfile> & { email: string; fullName: string }): Promise<{ data: UserProfile | null; error: Error | null }> {
+  async upsertUserProfile(
+    userId: string,
+    profile: Partial<UserProfile> & { email: string; fullName: string }
+  ): Promise<{ data: UserProfile | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
     let existingPlan: PlanType = 'free';
@@ -419,16 +442,13 @@ export const studentTwinService = {
     }
 
     let effectiveProfileImage = profile.profileImageUrl || profile.avatarUrl || cachedObj.profileImageUrl || cachedObj.avatarUrl || '';
-
     if (effectiveProfileImage && effectiveProfileImage.startsWith('data:')) {
       try {
         const { url: storageUrl } = await this.uploadProfileImage(userId, effectiveProfileImage);
         if (storageUrl) {
           effectiveProfileImage = storageUrl;
         }
-      } catch (uploadErr) {
-        console.warn('[studentTwinService] uploadProfileImage notice:', uploadErr);
-      }
+      } catch {}
     }
 
     const formattedProfile: UserProfile = {
@@ -463,44 +483,24 @@ export const studentTwinService = {
       isDemo: false,
     };
 
+    // Always persist to local cache immediately
     localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(formattedProfile));
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('student_profiles').upsert({
-          id: `sp_${userId}_primary`,
-          user_id: userId,
-          name: formattedProfile.fullName,
-          university: formattedProfile.university,
-          degree: formattedProfile.degree,
-          branch: formattedProfile.branch,
-          year: formattedProfile.year,
-          career_goal: formattedProfile.careerGoal,
-          target_role: formattedProfile.targetRole,
-          profile_data: formattedProfile,
-          is_active: true,
-        });
+    // Call /api/twin?module=profile
+    try {
+      const { data, error } = await callTwinApi('profile', {
+        method: 'POST',
+        body: { profile: formattedProfile, userId },
+      });
 
-        await supabase.auth.updateUser({
-          data: {
-            full_name: formattedProfile.fullName,
-            university: formattedProfile.university,
-            degree: formattedProfile.degree,
-            branch: formattedProfile.branch,
-            year: formattedProfile.year,
-            career_goal: formattedProfile.careerGoal,
-            target_role: formattedProfile.targetRole,
-            plan: formattedProfile.plan,
-            is_onboarded: formattedProfile.isOnboarded,
-            profile: formattedProfile,
-          },
-        });
-      } catch (err: any) {
-        logSupabaseDiag('UPSERT', 'student_profiles (primary foundation)', userId, err, 500, 'Supabase Client');
+      if (error) {
+        return { data: formattedProfile, error: null }; // Keep local state intact
       }
-    }
 
-    return { data: formattedProfile, error: null };
+      return { data: formattedProfile, error: null };
+    } catch {
+      return { data: formattedProfile, error: null };
+    }
   },
 
   // ==========================================
@@ -515,11 +515,10 @@ export const studentTwinService = {
     localStorage.setItem(getStorageKey(userId, 'subscription'), JSON.stringify(subscription));
 
     const cachedProfile = localStorage.getItem(getStorageKey(userId, 'profile'));
-    let updatedProfile: UserProfile | null = null;
     if (cachedProfile) {
       try {
         const parsed = JSON.parse(cachedProfile);
-        updatedProfile = {
+        const updatedProfile: UserProfile = {
           ...parsed,
           plan: subscription.selectedPlan,
           billingCycle: subscription.billingCycle,
@@ -531,40 +530,32 @@ export const studentTwinService = {
       } catch {}
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('subscriptions').upsert({
+    try {
+      await callTwinApi('item', {
+        method: 'POST',
+        body: {
+          table: 'subscriptions',
           id: subscription.id || `sub_${userId}`,
-          user_id: userId,
-          email: subscription.email,
-          selected_plan: subscription.selectedPlan,
-          billing_cycle: subscription.billingCycle,
-          amount: subscription.amount,
-          currency: subscription.currency,
-          payment_method: subscription.paymentMethod,
-          upi_id: subscription.upiId,
-          transaction_ref: subscription.transactionRef || null,
-          payment_status: subscription.paymentStatus,
-          subscription_status: subscription.subscriptionStatus,
-          started_at: subscription.startedAt,
-          expires_at: subscription.expiresAt,
-          created_at: subscription.createdAt,
-        });
-
-        await supabase.auth.updateUser({
           data: {
-            plan: subscription.selectedPlan,
+            id: subscription.id || `sub_${userId}`,
+            user_id: userId,
+            email: subscription.email,
+            selected_plan: subscription.selectedPlan,
             billing_cycle: subscription.billingCycle,
+            amount: subscription.amount,
+            currency: subscription.currency,
+            payment_method: subscription.paymentMethod,
+            upi_id: subscription.upiId,
+            transaction_ref: subscription.transactionRef || null,
+            payment_status: subscription.paymentStatus,
             subscription_status: subscription.subscriptionStatus,
-            subscription_data: subscription,
+            started_at: subscription.startedAt,
+            expires_at: subscription.expiresAt,
+            created_at: subscription.createdAt,
           },
-        });
-        return { data: subscription, error: null };
-      } catch (err: any) {
-        logSupabaseDiag('UPSERT', 'subscriptions', userId, err, 500, 'Supabase Client');
-        return { data: subscription, error: null };
-      }
-    }
+        },
+      });
+    } catch {}
 
     return { data: subscription, error: null };
   },
@@ -589,11 +580,27 @@ export const studentTwinService = {
     if (!userId) return { data: [], error: new Error('User ID is required') };
 
     const cached = localStorage.getItem(getStorageKey(userId, 'students'));
-    const list: StudentProfile[] = cached ? JSON.parse(cached) : [];
-    return { data: list, error: null };
+    const localList: StudentProfile[] = cached ? JSON.parse(cached) : [];
+
+    try {
+      const { data, error } = await callTwinApi<StudentProfile[]>('students', {
+        method: 'GET',
+        params: { userId },
+      });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(data));
+        return { data, error: null };
+      }
+    } catch {}
+
+    return { data: localList, error: null };
   },
 
-  async createStudentProfile(userId: string, profile: Omit<StudentProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<{ data: StudentProfile | null; error: Error | null }> {
+  async createStudentProfile(
+    userId: string,
+    profile: Omit<StudentProfile, 'id' | 'userId' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ data: StudentProfile | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
     const newId = crypto.randomUUID ? crypto.randomUUID() : `sp_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -612,35 +619,21 @@ export const studentTwinService = {
     list.unshift(newProfile);
     localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('student_profiles').upsert({
-          id: newId,
-          user_id: userId,
-          name: newProfile.name,
-          university: newProfile.university,
-          degree: newProfile.degree,
-          branch: newProfile.branch,
-          year: newProfile.year,
-          career_goal: newProfile.careerGoal,
-          target_role: newProfile.targetRole,
-          profile_data: newProfile.profileData,
-          is_active: Boolean(newProfile.isActive),
-        });
-        await supabase.auth.updateUser({
-          data: {
-            students: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('INSERT', 'student_profiles', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('students', {
+        method: 'POST',
+        body: { students: list, student: newProfile, userId },
+      });
+    } catch {}
 
     return { data: newProfile, error: null };
   },
 
-  async updateStudentProfile(userId: string, id: string, updates: Partial<StudentProfile>): Promise<{ data: StudentProfile | null; error: Error | null }> {
+  async updateStudentProfile(
+    userId: string,
+    id: string,
+    updates: Partial<StudentProfile>
+  ): Promise<{ data: StudentProfile | null; error: Error | null }> {
     if (!userId || !id) return { data: null, error: new Error('User ID and Profile ID are required') };
 
     const now = new Date().toISOString();
@@ -657,29 +650,13 @@ export const studentTwinService = {
       }
     }
 
-    if (isSupabaseConfigured && updatedItem) {
+    if (updatedItem) {
       try {
-        await supabase.from('student_profiles').upsert({
-          id,
-          user_id: userId,
-          name: updatedItem.name,
-          university: updatedItem.university,
-          degree: updatedItem.degree,
-          branch: updatedItem.branch,
-          year: updatedItem.year,
-          career_goal: updatedItem.careerGoal,
-          target_role: updatedItem.targetRole,
-          profile_data: updatedItem.profileData,
-          is_active: Boolean(updatedItem.isActive),
+        await callTwinApi('students', {
+          method: 'POST',
+          body: { students: list, student: updatedItem, userId },
         });
-        await supabase.auth.updateUser({
-          data: {
-            students: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('UPDATE', 'student_profiles', userId, err, 500, 'Supabase Client');
-      }
+      } catch {}
     }
 
     return { data: updatedItem, error: null };
@@ -696,18 +673,13 @@ export const studentTwinService = {
       localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(filtered));
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('student_profiles').delete().eq('id', id);
-        await supabase.auth.updateUser({
-          data: {
-            students: filtered,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('DELETE', 'student_profiles', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('students', {
+        method: 'DELETE',
+        params: { id, userId },
+        body: { id },
+      });
+    } catch {}
 
     return { success: true, error: null };
   },
@@ -719,14 +691,29 @@ export const studentTwinService = {
     if (!userId) return { data: [], error: new Error('User ID is required') };
 
     const cached = localStorage.getItem(getStorageKey(userId, 'skills'));
-    const list: SkillItem[] = cached ? JSON.parse(cached) : [];
-    if (studentProfileId) {
-      return { data: list.filter((item) => !item.studentProfileId || item.studentProfileId === studentProfileId), error: null };
-    }
-    return { data: list, error: null };
+    const localList: SkillItem[] = cached ? JSON.parse(cached) : [];
+
+    try {
+      const { data, error } = await callTwinApi<SkillItem[]>('skills', {
+        method: 'GET',
+        params: { userId },
+      });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(data));
+        const filtered = studentProfileId ? data.filter((s) => !s.studentProfileId || s.studentProfileId === studentProfileId) : data;
+        return { data: filtered, error: null };
+      }
+    } catch {}
+
+    const filteredLocal = studentProfileId ? localList.filter((s) => !s.studentProfileId || s.studentProfileId === studentProfileId) : localList;
+    return { data: filteredLocal, error: null };
   },
 
-  async addSkill(userId: string, skill: Omit<SkillItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<{ data: SkillItem | null; error: Error | null }> {
+  async addSkill(
+    userId: string,
+    skill: Omit<SkillItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ data: SkillItem | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
     const newId = crypto.randomUUID ? crypto.randomUUID() : `sk_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -745,31 +732,21 @@ export const studentTwinService = {
     list.unshift(newSkill);
     localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('skills').upsert({
-          id: newId,
-          user_id: userId,
-          student_profile_id: newSkill.studentProfileId || null,
-          skill_name: newSkill.skillName,
-          category: newSkill.category,
-          proficiency: newSkill.proficiency,
-          score: newSkill.score,
-        });
-        await supabase.auth.updateUser({
-          data: {
-            skills: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('INSERT', 'skills', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('skills', {
+        method: 'POST',
+        body: { skills: list, skill: newSkill, userId },
+      });
+    } catch {}
 
     return { data: newSkill, error: null };
   },
 
-  async updateSkill(userId: string, id: string, updates: Partial<SkillItem>): Promise<{ data: SkillItem | null; error: Error | null }> {
+  async updateSkill(
+    userId: string,
+    id: string,
+    updates: Partial<SkillItem>
+  ): Promise<{ data: SkillItem | null; error: Error | null }> {
     if (!userId || !id) return { data: null, error: new Error('User ID and Skill ID are required') };
 
     const now = new Date().toISOString();
@@ -786,25 +763,13 @@ export const studentTwinService = {
       }
     }
 
-    if (isSupabaseConfigured && updatedItem) {
+    if (updatedItem) {
       try {
-        await supabase.from('skills').upsert({
-          id,
-          user_id: userId,
-          student_profile_id: updatedItem.studentProfileId || null,
-          skill_name: updatedItem.skillName,
-          category: updatedItem.category,
-          proficiency: updatedItem.proficiency,
-          score: updatedItem.score,
+        await callTwinApi('skills', {
+          method: 'POST',
+          body: { skills: list, skill: updatedItem, userId },
         });
-        await supabase.auth.updateUser({
-          data: {
-            skills: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('UPDATE', 'skills', userId, err, 500, 'Supabase Client');
-      }
+      } catch {}
     }
 
     return { data: updatedItem, error: null };
@@ -821,18 +786,13 @@ export const studentTwinService = {
       localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(filtered));
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('skills').delete().eq('id', id);
-        await supabase.auth.updateUser({
-          data: {
-            skills: filtered,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('DELETE', 'skills', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('skills', {
+        method: 'DELETE',
+        params: { id, userId },
+        body: { id },
+      });
+    } catch {}
 
     return { success: true, error: null };
   },
@@ -844,14 +804,29 @@ export const studentTwinService = {
     if (!userId) return { data: [], error: new Error('User ID is required') };
 
     const cached = localStorage.getItem(getStorageKey(userId, 'projects'));
-    const list: ProjectItem[] = cached ? JSON.parse(cached) : [];
-    if (studentProfileId) {
-      return { data: list.filter((item) => !item.studentProfileId || item.studentProfileId === studentProfileId), error: null };
-    }
-    return { data: list, error: null };
+    const localList: ProjectItem[] = cached ? JSON.parse(cached) : [];
+
+    try {
+      const { data, error } = await callTwinApi<ProjectItem[]>('projects', {
+        method: 'GET',
+        params: { userId },
+      });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(data));
+        const filtered = studentProfileId ? data.filter((p) => !p.studentProfileId || p.studentProfileId === studentProfileId) : data;
+        return { data: filtered, error: null };
+      }
+    } catch {}
+
+    const filteredLocal = studentProfileId ? localList.filter((p) => !p.studentProfileId || p.studentProfileId === studentProfileId) : localList;
+    return { data: filteredLocal, error: null };
   },
 
-  async addProject(userId: string, project: Omit<ProjectItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<{ data: ProjectItem | null; error: Error | null }> {
+  async addProject(
+    userId: string,
+    project: Omit<ProjectItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ data: ProjectItem | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
     const newId = crypto.randomUUID ? crypto.randomUUID() : `proj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -870,36 +845,21 @@ export const studentTwinService = {
     list.unshift(newProject);
     localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('projects').upsert({
-          id: newId,
-          user_id: userId,
-          student_profile_id: newProject.studentProfileId || null,
-          title: newProject.title,
-          description: newProject.description,
-          architecture: newProject.architecture || '',
-          tech_stack: Array.isArray(newProject.techStack) ? newProject.techStack : [],
-          github_url: newProject.githubUrl || '',
-          live_demo_url: newProject.liveDemoUrl || '',
-          role: newProject.role || 'Lead Developer',
-          difficulty: newProject.difficulty || 'Intermediate',
-          status: newProject.status || 'Completed',
-        });
-        await supabase.auth.updateUser({
-          data: {
-            projects: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('INSERT', 'projects', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('projects', {
+        method: 'POST',
+        body: { projects: list, project: newProject, userId },
+      });
+    } catch {}
 
     return { data: newProject, error: null };
   },
 
-  async updateProject(userId: string, id: string, updates: Partial<ProjectItem>): Promise<{ data: ProjectItem | null; error: Error | null }> {
+  async updateProject(
+    userId: string,
+    id: string,
+    updates: Partial<ProjectItem>
+  ): Promise<{ data: ProjectItem | null; error: Error | null }> {
     if (!userId || !id) return { data: null, error: new Error('User ID and Project ID are required') };
 
     const now = new Date().toISOString();
@@ -916,30 +876,13 @@ export const studentTwinService = {
       }
     }
 
-    if (isSupabaseConfigured && updatedItem) {
+    if (updatedItem) {
       try {
-        await supabase.from('projects').upsert({
-          id,
-          user_id: userId,
-          student_profile_id: updatedItem.studentProfileId || null,
-          title: updatedItem.title,
-          description: updatedItem.description,
-          architecture: updatedItem.architecture || '',
-          tech_stack: Array.isArray(updatedItem.techStack) ? updatedItem.techStack : [],
-          github_url: updatedItem.githubUrl || '',
-          live_demo_url: updatedItem.liveDemoUrl || '',
-          role: updatedItem.role || 'Lead Developer',
-          difficulty: updatedItem.difficulty || 'Intermediate',
-          status: updatedItem.status || 'Completed',
+        await callTwinApi('projects', {
+          method: 'POST',
+          body: { projects: list, project: updatedItem, userId },
         });
-        await supabase.auth.updateUser({
-          data: {
-            projects: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('UPDATE', 'projects', userId, err, 500, 'Supabase Client');
-      }
+      } catch {}
     }
 
     return { data: updatedItem, error: null };
@@ -956,18 +899,13 @@ export const studentTwinService = {
       localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(filtered));
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('projects').delete().eq('id', id);
-        await supabase.auth.updateUser({
-          data: {
-            projects: filtered,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('DELETE', 'projects', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('projects', {
+        method: 'DELETE',
+        params: { id, userId },
+        body: { id },
+      });
+    } catch {}
 
     return { success: true, error: null };
   },
@@ -979,14 +917,29 @@ export const studentTwinService = {
     if (!userId) return { data: [], error: new Error('User ID is required') };
 
     const cached = localStorage.getItem(getStorageKey(userId, 'achievements'));
-    const list: AchievementItem[] = cached ? JSON.parse(cached) : [];
-    if (studentProfileId) {
-      return { data: list.filter((item) => !item.studentProfileId || item.studentProfileId === studentProfileId), error: null };
-    }
-    return { data: list, error: null };
+    const localList: AchievementItem[] = cached ? JSON.parse(cached) : [];
+
+    try {
+      const { data, error } = await callTwinApi<AchievementItem[]>('achievements', {
+        method: 'GET',
+        params: { userId },
+      });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(data));
+        const filtered = studentProfileId ? data.filter((a) => !a.studentProfileId || a.studentProfileId === studentProfileId) : data;
+        return { data: filtered, error: null };
+      }
+    } catch {}
+
+    const filteredLocal = studentProfileId ? localList.filter((a) => !a.studentProfileId || a.studentProfileId === studentProfileId) : localList;
+    return { data: filteredLocal, error: null };
   },
 
-  async addAchievement(userId: string, achievement: Omit<AchievementItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<{ data: AchievementItem | null; error: Error | null }> {
+  async addAchievement(
+    userId: string,
+    achievement: Omit<AchievementItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ data: AchievementItem | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
     const newId = crypto.randomUUID ? crypto.randomUUID() : `ach_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -1005,32 +958,21 @@ export const studentTwinService = {
     list.unshift(newAchievement);
     localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('achievements').upsert({
-          id: newId,
-          user_id: userId,
-          student_profile_id: newAchievement.studentProfileId || null,
-          title: newAchievement.title,
-          organization: newAchievement.organization,
-          date: newAchievement.date,
-          description: newAchievement.description,
-          certificate_url: newAchievement.certificateUrl || '',
-        });
-        await supabase.auth.updateUser({
-          data: {
-            achievements: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('INSERT', 'achievements', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('achievements', {
+        method: 'POST',
+        body: { achievements: list, achievement: newAchievement, userId },
+      });
+    } catch {}
 
     return { data: newAchievement, error: null };
   },
 
-  async updateAchievement(userId: string, id: string, updates: Partial<AchievementItem>): Promise<{ data: AchievementItem | null; error: Error | null }> {
+  async updateAchievement(
+    userId: string,
+    id: string,
+    updates: Partial<AchievementItem>
+  ): Promise<{ data: AchievementItem | null; error: Error | null }> {
     if (!userId || !id) return { data: null, error: new Error('User ID and Achievement ID are required') };
 
     const now = new Date().toISOString();
@@ -1047,26 +989,13 @@ export const studentTwinService = {
       }
     }
 
-    if (isSupabaseConfigured && updatedItem) {
+    if (updatedItem) {
       try {
-        await supabase.from('achievements').upsert({
-          id,
-          user_id: userId,
-          student_profile_id: updatedItem.studentProfileId || null,
-          title: updatedItem.title,
-          organization: updatedItem.organization,
-          date: updatedItem.date,
-          description: updatedItem.description,
-          certificate_url: updatedItem.certificateUrl || '',
+        await callTwinApi('achievements', {
+          method: 'POST',
+          body: { achievements: list, achievement: updatedItem, userId },
         });
-        await supabase.auth.updateUser({
-          data: {
-            achievements: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('UPDATE', 'achievements', userId, err, 500, 'Supabase Client');
-      }
+      } catch {}
     }
 
     return { data: updatedItem, error: null };
@@ -1083,18 +1012,13 @@ export const studentTwinService = {
       localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(filtered));
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('achievements').delete().eq('id', id);
-        await supabase.auth.updateUser({
-          data: {
-            achievements: filtered,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('DELETE', 'achievements', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('achievements', {
+        method: 'DELETE',
+        params: { id, userId },
+        body: { id },
+      });
+    } catch {}
 
     return { success: true, error: null };
   },
@@ -1106,14 +1030,29 @@ export const studentTwinService = {
     if (!userId) return { data: [], error: new Error('User ID is required') };
 
     const cached = localStorage.getItem(getStorageKey(userId, 'career_goals'));
-    const list: CareerGoalItem[] = cached ? JSON.parse(cached) : [];
-    if (studentProfileId) {
-      return { data: list.filter((item) => !item.studentProfileId || item.studentProfileId === studentProfileId), error: null };
-    }
-    return { data: list, error: null };
+    const localList: CareerGoalItem[] = cached ? JSON.parse(cached) : [];
+
+    try {
+      const { data, error } = await callTwinApi<CareerGoalItem[]>('career-goals', {
+        method: 'GET',
+        params: { userId },
+      });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(data));
+        const filtered = studentProfileId ? data.filter((g) => !g.studentProfileId || g.studentProfileId === studentProfileId) : data;
+        return { data: filtered, error: null };
+      }
+    } catch {}
+
+    const filteredLocal = studentProfileId ? localList.filter((g) => !g.studentProfileId || g.studentProfileId === studentProfileId) : localList;
+    return { data: filteredLocal, error: null };
   },
 
-  async addCareerGoal(userId: string, goal: Omit<CareerGoalItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Promise<{ data: CareerGoalItem | null; error: Error | null }> {
+  async addCareerGoal(
+    userId: string,
+    goal: Omit<CareerGoalItem, 'id' | 'userId' | 'createdAt' | 'updatedAt'>
+  ): Promise<{ data: CareerGoalItem | null; error: Error | null }> {
     if (!userId) return { data: null, error: new Error('User ID is required') };
 
     const newId = crypto.randomUUID ? crypto.randomUUID() : `cg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -1135,34 +1074,21 @@ export const studentTwinService = {
     list.unshift(newGoal);
     localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(list));
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('career_goals').upsert({
-          id: newId,
-          user_id: userId,
-          student_profile_id: newGoal.studentProfileId || null,
-          goal: newGoal.goal,
-          target_role: newGoal.targetRole,
-          target_companies: Array.isArray(newGoal.targetCompanies) ? newGoal.targetCompanies : [],
-          required_skills: Array.isArray(newGoal.requiredSkills) ? newGoal.requiredSkills : [],
-          timeline: newGoal.timeline,
-          is_active: Boolean(newGoal.isActive),
-        });
-        await supabase.auth.updateUser({
-          data: {
-            career_goals: list,
-            careerGoals: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('INSERT', 'career_goals', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('career-goals', {
+        method: 'POST',
+        body: { careerGoals: list, careerGoal: newGoal, userId },
+      });
+    } catch {}
 
     return { data: newGoal, error: null };
   },
 
-  async updateCareerGoal(userId: string, id: string, updates: Partial<CareerGoalItem>): Promise<{ data: CareerGoalItem | null; error: Error | null }> {
+  async updateCareerGoal(
+    userId: string,
+    id: string,
+    updates: Partial<CareerGoalItem>
+  ): Promise<{ data: CareerGoalItem | null; error: Error | null }> {
     if (!userId || !id) return { data: null, error: new Error('User ID and Goal ID are required') };
 
     const now = new Date().toISOString();
@@ -1183,28 +1109,13 @@ export const studentTwinService = {
       updatedItem = list.find((item) => item.id === id) || null;
     }
 
-    if (isSupabaseConfigured && updatedItem) {
+    if (updatedItem) {
       try {
-        await supabase.from('career_goals').upsert({
-          id,
-          user_id: userId,
-          student_profile_id: updatedItem.studentProfileId || null,
-          goal: updatedItem.goal,
-          target_role: updatedItem.targetRole,
-          target_companies: Array.isArray(updatedItem.targetCompanies) ? updatedItem.targetCompanies : [],
-          required_skills: Array.isArray(updatedItem.requiredSkills) ? updatedItem.requiredSkills : [],
-          timeline: updatedItem.timeline,
-          is_active: Boolean(updatedItem.isActive),
+        await callTwinApi('career-goals', {
+          method: 'POST',
+          body: { careerGoals: list, careerGoal: updatedItem, userId },
         });
-        await supabase.auth.updateUser({
-          data: {
-            career_goals: list,
-            careerGoals: list,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('UPDATE', 'career_goals', userId, err, 500, 'Supabase Client');
-      }
+      } catch {}
     }
 
     return { data: updatedItem, error: null };
@@ -1221,19 +1132,13 @@ export const studentTwinService = {
       localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(filtered));
     }
 
-    if (isSupabaseConfigured) {
-      try {
-        await supabase.from('career_goals').delete().eq('id', id);
-        await supabase.auth.updateUser({
-          data: {
-            career_goals: filtered,
-            careerGoals: filtered,
-          },
-        });
-      } catch (err) {
-        logSupabaseDiag('DELETE', 'career_goals', userId, err, 500, 'Supabase Client');
-      }
-    }
+    try {
+      await callTwinApi('career-goals', {
+        method: 'DELETE',
+        params: { id, userId },
+        body: { id },
+      });
+    } catch {}
 
     return { success: true, error: null };
   },
@@ -1283,157 +1188,122 @@ export const studentTwinService = {
 
     const localBundle = getLocalBundle();
 
-    if (!isSupabaseConfigured) {
-      return { data: localBundle, error: null };
-    }
-
     try {
-      // 1. Directly fetch authenticated user metadata from Supabase
-      let authUser: any = null;
-      try {
-        const { data: authData } = await supabase.auth.getUser();
-        if (authData?.user && authData.user.id === userId) {
-          authUser = authData.user;
-        }
-      } catch {}
+      // Call serverless /api/twin?module=load to fetch from Supabase tables
+      const { data: cloudData, error: loadErr } = await callTwinApi<any>('load', {
+        method: 'GET',
+        params: { userId },
+      });
 
-      const userMeta = authUser?.user_metadata || {};
-
-      // 2. Query direct Supabase tables in parallel if available
-      const [
-        profTableRes,
-        studentsTableRes,
-        skillsTableRes,
-        projectsTableRes,
-        achievementsTableRes,
-        careerGoalsTableRes,
-      ] = await Promise.allSettled([
-        supabase.from('student_profiles').select('*').eq('user_id', userId).limit(1),
-        supabase.from('student_profiles').select('*').eq('user_id', userId),
-        supabase.from('skills').select('*').eq('user_id', userId),
-        supabase.from('projects').select('*').eq('user_id', userId),
-        supabase.from('achievements').select('*').eq('user_id', userId),
-        supabase.from('career_goals').select('*').eq('user_id', userId),
-      ]);
-
-      const dbProfile = profTableRes.status === 'fulfilled' && !profTableRes.value.error ? profTableRes.value.data?.[0] : null;
-      const dbStudents = (studentsTableRes.status === 'fulfilled' && !studentsTableRes.value.error && Array.isArray(studentsTableRes.value.data)) ? studentsTableRes.value.data : (userMeta.students || []);
-      const dbSkills = (skillsTableRes.status === 'fulfilled' && !skillsTableRes.value.error && Array.isArray(skillsTableRes.value.data)) ? skillsTableRes.value.data : (userMeta.skills || []);
-      const dbProjects = (projectsTableRes.status === 'fulfilled' && !projectsTableRes.value.error && Array.isArray(projectsTableRes.value.data)) ? projectsTableRes.value.data : (userMeta.projects || []);
-      const dbAchievements = (achievementsTableRes.status === 'fulfilled' && !achievementsTableRes.value.error && Array.isArray(achievementsTableRes.value.data)) ? achievementsTableRes.value.data : (userMeta.achievements || []);
-      const dbCareerGoals = (careerGoalsTableRes.status === 'fulfilled' && !careerGoalsTableRes.value.error && Array.isArray(careerGoalsTableRes.value.data)) ? careerGoalsTableRes.value.data : (userMeta.career_goals || userMeta.careerGoals || []);
-
-      // Safe merge strategy: NEVER discard local state if cloud returns empty
-      const mergeEntities = <T extends { id: string }>(dbItems: any[] = [], localItems?: T[] | null): T[] => {
-        const map = new Map<string, T>();
-        if (Array.isArray(localItems)) {
-          for (const item of localItems) {
-            if (item && item.id) map.set(item.id, item);
-          }
-        }
-        if (Array.isArray(dbItems) && dbItems.length > 0) {
-          for (const item of dbItems) {
-            if (item && item.id) {
-              const mapped: any = {
-                ...item,
-                userId: item.user_id || item.userId || userId,
-                studentProfileId: item.student_profile_id || item.studentProfileId,
-                skillName: item.skill_name || item.skillName,
-                techStack: item.tech_stack || item.techStack,
-                githubUrl: item.github_url || item.githubUrl,
-                liveDemoUrl: item.live_demo_url || item.liveDemoUrl,
-                certificateUrl: item.certificate_url || item.certificateUrl,
-                targetRole: item.target_role || item.targetRole,
-                targetCompanies: item.target_companies || item.targetCompanies,
-                requiredSkills: item.required_skills || item.requiredSkills,
-                isActive: item.is_active !== undefined ? Boolean(item.is_active) : Boolean(item.isActive),
-              };
-              map.set(item.id, { ...(map.get(item.id) || {}), ...mapped });
+      if (!loadErr && cloudData) {
+        const mergeEntities = <T extends { id: string }>(cloudItems: any[] = [], localItems?: T[] | null): T[] => {
+          const map = new Map<string, T>();
+          if (Array.isArray(localItems)) {
+            for (const item of localItems) {
+              if (item && item.id) map.set(item.id, item);
             }
           }
+          if (Array.isArray(cloudItems) && cloudItems.length > 0) {
+            for (const item of cloudItems) {
+              if (item && item.id) {
+                const mapped: any = {
+                  ...item,
+                  userId: item.user_id || item.userId || userId,
+                  studentProfileId: item.student_profile_id || item.studentProfileId,
+                  skillName: item.skill_name || item.skillName || item.name,
+                  techStack: item.tech_stack || item.techStack,
+                  githubUrl: item.github_url || item.githubUrl,
+                  liveDemoUrl: item.live_demo_url || item.liveDemoUrl,
+                  certificateUrl: item.certificate_url || item.certificateUrl,
+                  targetRole: item.target_role || item.targetRole,
+                  targetCompanies: item.target_companies || item.targetCompanies,
+                  requiredSkills: item.required_skills || item.requiredSkills,
+                  isActive: item.is_active !== undefined ? Boolean(item.is_active) : Boolean(item.isActive),
+                };
+                map.set(item.id, { ...(map.get(item.id) || {}), ...mapped });
+              }
+            }
+          }
+          return Array.from(map.values());
+        };
+
+        const students = mergeEntities<StudentProfile>(cloudData.students, localBundle?.students);
+        const skills = mergeEntities<SkillItem>(cloudData.skills, localBundle?.skills);
+        const projects = mergeEntities<ProjectItem>(cloudData.projects, localBundle?.projects);
+        const achievements = mergeEntities<AchievementItem>(cloudData.achievements, localBundle?.achievements);
+        const careerGoals = mergeEntities<CareerGoalItem>(cloudData.careerGoals, localBundle?.careerGoals);
+
+        const cloudProfile = cloudData.profile || {};
+        const cachedProfile = localBundle?.profile;
+        const primaryStudent = students.find((s) => s.id === `sp_${userId}_primary` || s.isActive) || students[0];
+
+        const profile: UserProfile = {
+          id: userId,
+          email: cloudProfile.email || cachedProfile?.email || '',
+          fullName: cloudProfile.fullName || cloudProfile.full_name || cachedProfile?.fullName || primaryStudent?.name || 'Student User',
+          university: cloudProfile.university || cachedProfile?.university || primaryStudent?.university || '',
+          degree: cloudProfile.degree || cachedProfile?.degree || primaryStudent?.degree || 'B.Tech',
+          branch: cloudProfile.branch || cachedProfile?.branch || primaryStudent?.branch || '',
+          program: cloudProfile.program || cachedProfile?.program || (primaryStudent?.degree && primaryStudent?.branch ? `${primaryStudent.degree} in ${primaryStudent.branch}` : ''),
+          year: cloudProfile.year || cachedProfile?.year || primaryStudent?.year || '1st Year',
+          expectedGraduationYear: cloudProfile.expectedGraduationYear || cloudProfile.expected_graduation_year || cachedProfile?.expectedGraduationYear || '',
+          careerGoal: cloudProfile.careerGoal || cloudProfile.career_goal || cachedProfile?.careerGoal || primaryStudent?.careerGoal || '',
+          targetRole: cloudProfile.targetRole || cloudProfile.target_role || cachedProfile?.targetRole || primaryStudent?.targetRole || '',
+          currentSkills: cloudProfile.currentSkills || cloudProfile.current_skills || cachedProfile?.currentSkills || '',
+          skills: cloudProfile.skills || cachedProfile?.skills || [],
+          bio: cloudProfile.bio || cachedProfile?.bio || '',
+          githubUrl: cloudProfile.githubUrl || cloudProfile.github_url || cachedProfile?.githubUrl || '',
+          linkedinUrl: cloudProfile.linkedinUrl || cloudProfile.linkedin_url || cachedProfile?.linkedinUrl || '',
+          phone: cloudProfile.phone || cachedProfile?.phone || '',
+          location: cloudProfile.location || cachedProfile?.location || '',
+          profileImageUrl: cloudProfile.profileImageUrl || cloudProfile.profile_image_url || cloudProfile.avatarUrl || cachedProfile?.profileImageUrl || '',
+          avatarUrl: cloudProfile.avatarUrl || cloudProfile.profileImageUrl || cachedProfile?.avatarUrl || '',
+          portfolio: cloudProfile.portfolio || cachedProfile?.portfolio,
+          plan: (cloudProfile.plan || cachedProfile?.plan || 'free') as PlanType,
+          billingCycle: cloudProfile.billingCycle || cloudProfile.billing_cycle || cachedProfile?.billingCycle,
+          subscriptionStatus: cloudProfile.subscriptionStatus || cloudProfile.subscription_status || cachedProfile?.subscriptionStatus,
+          subscriptionDetails: cloudProfile.subscriptionDetails || cloudProfile.subscription_data || cachedProfile?.subscriptionDetails,
+          isOnboarded: Boolean(cloudProfile.isOnboarded ?? cloudProfile.is_onboarded ?? cachedProfile?.isOnboarded ?? (cloudProfile.university || cachedProfile?.university)),
+          createdAt: cloudProfile.createdAt || cloudProfile.created_at || cachedProfile?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isDemo: false,
+        };
+
+        const activeStudentId: string | null =
+          cloudData.activeStudentId ||
+          localBundle?.activeStudentId ||
+          students.find((s) => s.isActive)?.id ||
+          students[0]?.id ||
+          null;
+
+        // Persist to user-scoped local storage for instant responsiveness & offline navigation
+        localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
+        localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(students));
+        localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(skills));
+        localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(projects));
+        localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(achievements));
+        localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(careerGoals));
+        if (activeStudentId) {
+          localStorage.setItem(getStorageKey(userId, 'active_student_id'), activeStudentId);
         }
-        return Array.from(map.values());
-      };
 
-      const students = mergeEntities<StudentProfile>(dbStudents, localBundle?.students);
-      const skills = mergeEntities<SkillItem>(dbSkills, localBundle?.skills);
-      const projects = mergeEntities<ProjectItem>(dbProjects, localBundle?.projects);
-      const achievements = mergeEntities<AchievementItem>(dbAchievements, localBundle?.achievements);
-      const careerGoals = mergeEntities<CareerGoalItem>(dbCareerGoals, localBundle?.careerGoals);
-
-      const cachedProfile = localBundle?.profile;
-      const metaProfile = userMeta.profile || {};
-      const primaryStudent = students.find((s) => s.id === `sp_${userId}_primary` || s.isActive) || students[0];
-
-      const profile: UserProfile = {
-        id: userId,
-        email: authUser?.email || dbProfile?.email || metaProfile.email || cachedProfile?.email || '',
-        fullName: metaProfile.fullName || userMeta.full_name || dbProfile?.name || cachedProfile?.fullName || primaryStudent?.name || 'Student User',
-        university: metaProfile.university || userMeta.university || dbProfile?.university || cachedProfile?.university || primaryStudent?.university || '',
-        degree: metaProfile.degree || userMeta.degree || dbProfile?.degree || cachedProfile?.degree || primaryStudent?.degree || 'B.Tech',
-        branch: metaProfile.branch || userMeta.branch || dbProfile?.branch || cachedProfile?.branch || primaryStudent?.branch || '',
-        program: metaProfile.program || cachedProfile?.program || (primaryStudent?.degree && primaryStudent?.branch ? `${primaryStudent.degree} in ${primaryStudent.branch}` : ''),
-        year: metaProfile.year || userMeta.year || dbProfile?.year || cachedProfile?.year || primaryStudent?.year || '1st Year',
-        expectedGraduationYear: metaProfile.expectedGraduationYear || userMeta.expected_graduation_year || cachedProfile?.expectedGraduationYear || '',
-        careerGoal: metaProfile.careerGoal || userMeta.career_goal || dbProfile?.career_goal || cachedProfile?.careerGoal || primaryStudent?.careerGoal || '',
-        targetRole: metaProfile.targetRole || userMeta.target_role || dbProfile?.target_role || cachedProfile?.targetRole || primaryStudent?.targetRole || '',
-        currentSkills: metaProfile.currentSkills || userMeta.current_skills || cachedProfile?.currentSkills || '',
-        skills: metaProfile.skills || userMeta.skills || cachedProfile?.skills || [],
-        bio: metaProfile.bio || userMeta.bio || cachedProfile?.bio || '',
-        githubUrl: metaProfile.githubUrl || userMeta.github_url || cachedProfile?.githubUrl || '',
-        linkedinUrl: metaProfile.linkedinUrl || userMeta.linkedin_url || cachedProfile?.linkedinUrl || '',
-        phone: metaProfile.phone || userMeta.phone || cachedProfile?.phone || '',
-        location: metaProfile.location || userMeta.location || cachedProfile?.location || '',
-        profileImageUrl: metaProfile.profileImageUrl || userMeta.profile_image_url || cachedProfile?.profileImageUrl || cachedProfile?.avatarUrl || '',
-        avatarUrl: metaProfile.avatarUrl || userMeta.avatar_url || cachedProfile?.avatarUrl || cachedProfile?.profileImageUrl || '',
-        portfolio: metaProfile.portfolio || userMeta.portfolio_data || cachedProfile?.portfolio,
-        plan: (metaProfile.plan || userMeta.plan || cachedProfile?.plan || 'free') as PlanType,
-        billingCycle: metaProfile.billingCycle || userMeta.billing_cycle || cachedProfile?.billingCycle,
-        subscriptionStatus: metaProfile.subscriptionStatus || userMeta.subscription_status || cachedProfile?.subscriptionStatus,
-        subscriptionDetails: metaProfile.subscriptionDetails || userMeta.subscription_data || cachedProfile?.subscriptionDetails,
-        isOnboarded: Boolean(metaProfile.isOnboarded ?? userMeta.is_onboarded ?? cachedProfile?.isOnboarded ?? (userMeta.university || cachedProfile?.university)),
-        createdAt: authUser?.created_at || cachedProfile?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isDemo: false,
-      };
-
-      const activeStudentId: string | null =
-        userMeta.active_student_id ||
-        localBundle?.activeStudentId ||
-        students.find((s) => s.isActive)?.id ||
-        students[0]?.id ||
-        null;
-
-      // Persist to user-scoped storage so refresh and offline navigation work instantly
-      localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(profile));
-      localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(students));
-      localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(skills));
-      localStorage.setItem(getStorageKey(userId, 'projects'), JSON.stringify(projects));
-      localStorage.setItem(getStorageKey(userId, 'achievements'), JSON.stringify(achievements));
-      localStorage.setItem(getStorageKey(userId, 'career_goals'), JSON.stringify(careerGoals));
-      if (activeStudentId) {
-        localStorage.setItem(getStorageKey(userId, 'active_student_id'), activeStudentId);
+        return {
+          data: {
+            profile,
+            students,
+            skills,
+            projects,
+            achievements,
+            careerGoals,
+            activeStudentId,
+            lastSyncedAt: new Date().toISOString(),
+          },
+          error: null,
+        };
       }
+    } catch {}
 
-      logSupabaseDiag('FETCH_ALL', 'all twin records', userId, null, 200, 'Direct Supabase Client');
-
-      return {
-        data: {
-          profile,
-          students,
-          skills,
-          projects,
-          achievements,
-          careerGoals,
-          activeStudentId,
-          lastSyncedAt: new Date().toISOString(),
-        },
-        error: null,
-      };
-    } catch (err: any) {
-      logSupabaseDiag('LOAD', 'fetchCloudStudentTwin fallback', userId, err, 500, 'Direct Supabase Client');
-      return { data: localBundle, error: null };
-    }
+    return { data: localBundle, error: null };
   },
 
   async uploadDataToCloud(
@@ -1457,9 +1327,7 @@ export const studentTwinService = {
         if (storageUrl) {
           effectiveProfileImage = storageUrl;
         }
-      } catch (uploadErr) {
-        console.warn('[studentTwinService] uploadProfileImage notice:', uploadErr);
-      }
+      } catch {}
     }
 
     const mergedProfile: UserProfile = {
@@ -1470,7 +1338,7 @@ export const studentTwinService = {
       updatedAt: new Date().toISOString(),
     };
 
-    // 1. Immediately persist to local storage (user data is NEVER lost)
+    // 1. Immediately persist to local storage (user edits are NEVER lost)
     localStorage.setItem(getStorageKey(userId, 'profile'), JSON.stringify(mergedProfile));
     localStorage.setItem(getStorageKey(userId, 'students'), JSON.stringify(students));
     localStorage.setItem(getStorageKey(userId, 'skills'), JSON.stringify(skills));
@@ -1481,15 +1349,7 @@ export const studentTwinService = {
       localStorage.setItem(getStorageKey(userId, 'active_student_id'), activeStudentId);
     }
 
-    if (!isSupabaseConfigured) {
-      return {
-        success: true,
-        message: 'Saved to local workspace storage.',
-        error: null,
-      };
-    }
-
-    // 2. Prepare clean, isolated payloads for each module (no bloated context / base64)
+    // 2. Prepare clean payloads for each module (no bloated context / base64)
     const cleanProfile = {
       id: userId,
       userId,
@@ -1584,130 +1444,39 @@ export const studentTwinService = {
       isActive: Boolean(g.isActive),
     }));
 
+    // 3. Execute modular synchronization via /api/twin?module=sync
     try {
-      // 3. Direct persistence via Supabase Auth metadata (Source of truth on cloud)
-      const { data: updatedAuth, error: authUpdateErr } = await supabase.auth.updateUser({
-        data: {
+      const { data, error, success } = await callTwinApi('sync', {
+        method: 'POST',
+        body: {
+          userId,
           profile: cleanProfile,
-          full_name: cleanProfile.fullName,
-          university: cleanProfile.university,
-          degree: cleanProfile.degree,
-          branch: cleanProfile.branch,
-          year: cleanProfile.year,
-          career_goal: cleanProfile.careerGoal,
-          target_role: cleanProfile.targetRole,
-          plan: cleanProfile.plan,
-          is_onboarded: cleanProfile.isOnboarded,
           students: cleanStudents,
           skills: cleanSkills,
           projects: cleanProjects,
           achievements: cleanAchievements,
-          career_goals: cleanCareerGoals,
           careerGoals: cleanCareerGoals,
-          active_student_id: activeStudentId || null,
+          activeStudentId: activeStudentId || null,
         },
       });
 
-      if (authUpdateErr) {
-        logSupabaseDiag('UPDATE_USER', 'user_metadata', userId, authUpdateErr, 400, 'Supabase Client');
+      if (error) {
         return {
           success: false,
-          message: `Cloud Sync Failed: ${authUpdateErr.message}`,
-          error: new Error(authUpdateErr.message),
+          message: `Cloud Sync Notice: ${error.message || 'Failed to sync'}`,
+          error,
         };
       }
 
-      // 4. Also perform direct table upserts concurrently
-      try {
-        await Promise.allSettled([
-          supabase.from('student_profiles').upsert(
-            cleanStudents.map((s) => ({
-              id: s.id,
-              user_id: userId,
-              name: s.name,
-              university: s.university,
-              degree: s.degree,
-              branch: s.branch,
-              year: s.year,
-              career_goal: s.careerGoal,
-              target_role: s.targetRole,
-              is_active: s.isActive,
-            }))
-          ),
-          supabase.from('projects').upsert(
-            cleanProjects.map((p) => ({
-              id: p.id,
-              user_id: userId,
-              student_profile_id: p.studentProfileId || null,
-              title: p.title,
-              description: p.description,
-              architecture: p.architecture,
-              tech_stack: p.techStack,
-              github_url: p.githubUrl,
-              live_demo_url: p.liveDemoUrl,
-              role: p.role,
-              difficulty: p.difficulty,
-              status: p.status,
-            }))
-          ),
-          supabase.from('skills').upsert(
-            cleanSkills.map((sk) => ({
-              id: sk.id,
-              user_id: userId,
-              student_profile_id: sk.studentProfileId || null,
-              skill_name: sk.skillName,
-              category: sk.category,
-              proficiency: sk.proficiency,
-              score: sk.score,
-            }))
-          ),
-          supabase.from('achievements').upsert(
-            cleanAchievements.map((a) => ({
-              id: a.id,
-              user_id: userId,
-              student_profile_id: a.studentProfileId || null,
-              title: a.title,
-              organization: a.organization,
-              date: a.date,
-              description: a.description,
-              certificate_url: a.certificateUrl,
-            }))
-          ),
-          supabase.from('career_goals').upsert(
-            cleanCareerGoals.map((g) => ({
-              id: g.id,
-              user_id: userId,
-              student_profile_id: g.studentProfileId || null,
-              goal: g.goal,
-              target_role: g.targetRole,
-              target_companies: g.targetCompanies,
-              required_skills: g.requiredSkills,
-              timeline: g.timeline,
-              is_active: g.isActive,
-            }))
-          ),
-        ]);
-      } catch (tableErr) {
-        // Table schema notice (metadata already safely saved)
-        console.warn('[Direct Supabase Table Notice]', tableErr);
-      }
-
-      // 5. Read-back verification directly from Supabase
-      const { data: verifyData } = await supabase.auth.getUser();
-      const verifiedProjects = verifyData?.user?.user_metadata?.projects?.length ?? cleanProjects.length;
-
-      console.log(`[Direct Supabase Sync] Verified user_metadata on Supabase. Projects: ${verifiedProjects}, Skills: ${cleanSkills.length}`);
-
       return {
-        success: true,
+        success: success ?? true,
         message: 'Cloud Sync Successful: All Twin Records are safely stored in the cloud.',
         error: null,
       };
     } catch (err: any) {
-      logSupabaseDiag('UPLOAD', 'all modules', userId, err, 500, 'Direct Supabase Client');
       return {
         success: false,
-        message: `Cloud Sync Failed: ${err?.message || 'Unknown network error'}`,
+        message: `Cloud Sync Failed: ${err?.message || 'Network exception'}`,
         error: err instanceof Error ? err : new Error(String(err)),
       };
     }
@@ -1716,7 +1485,7 @@ export const studentTwinService = {
   // Clear temporary local state for this user session upon logout (Cloud data remains in Supabase)
   clearUserCache(userId: string) {
     if (!userId) return;
-    const suffixes = ['profile', 'students', 'skills', 'projects', 'achievements', 'career_goals', 'active_student_id'];
+    const suffixes = ['profile', 'students', 'skills', 'projects', 'achievements', 'career_goals', 'active_student_id', 'subscription'];
     suffixes.forEach((suffix) => {
       localStorage.removeItem(getStorageKey(userId, suffix));
     });

@@ -9,7 +9,7 @@ import {
   getSupabaseHostName,
   getBridgeCache,
   setBridgeCache,
-} from '../_utils/supabaseServer.js';
+} from '../../_utils/supabaseServer.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
@@ -18,14 +18,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   logLayerDiag('ROUTE HANDLER ENTERED', {
     method: req.method,
-    path: '/api/twin/students',
+    path: '/api/twin/achievements',
     queryUserId: req.query?.userId || req.query?.user_id,
   });
 
   const { authenticated, userId, user, token, refreshToken, error: authError } = await authenticateRequest(req);
 
   if (!authenticated || !userId) {
-    logLayerDiag('AUTH CHECK FAILED', { path: '/api/twin/students', error: authError });
+    logLayerDiag('AUTH CHECK FAILED', { path: '/api/twin/achievements', error: authError });
     return res.status(401).json({
       success: false,
       error: authError || 'Unauthorized — Authenticated user session required',
@@ -35,98 +35,94 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = await getSupabaseAuthedClient(token || undefined, refreshToken || undefined);
 
   if (req.method === 'GET') {
-    logLayerDiag('SUPABASE REQUEST START', { op: 'SELECT', table: 'student_profiles', userId });
+    logLayerDiag('SUPABASE REQUEST START', { op: 'SELECT', table: 'achievements', userId });
 
-    let studentsData: any[] = [];
+    let achievementsData: any[] = [];
     let source = 'memory';
 
     if (isServerSupabaseConfigured) {
       try {
         const { data, error } = await client
-          .from('student_profiles')
+          .from('achievements')
           .select('*')
           .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+          .order('date', { ascending: false });
 
         if (!error && Array.isArray(data) && data.length > 0) {
-          studentsData = data.map((st: any) => ({
-            id: st.id,
-            userId: st.user_id || userId,
-            name: st.name || '',
-            university: st.university || '',
-            degree: st.degree || 'B.Tech',
-            branch: st.branch || '',
-            year: st.year || '1st Year',
-            careerGoal: st.career_goal || st.careerGoal || '',
-            targetRole: st.target_role || st.targetRole || '',
-            profileData: st.profile_data || st.profileData,
-            isActive: Boolean(st.is_active ?? st.isActive ?? false),
-            createdAt: st.created_at || st.createdAt || new Date().toISOString(),
-            updatedAt: st.updated_at || st.updatedAt || new Date().toISOString(),
+          achievementsData = data.map((a: any) => ({
+            id: a.id,
+            userId: a.user_id || userId,
+            studentProfileId: a.student_profile_id || a.studentProfileId,
+            title: a.title || '',
+            issuer: a.issuer || a.organization || '',
+            date: a.date || a.issueDate || new Date().toISOString().split('T')[0],
+            category: a.category || 'Certification',
+            credentialUrl: a.credential_url || a.credentialUrl || '',
+            skills: Array.isArray(a.skills) ? a.skills : [],
+            createdAt: a.created_at || a.createdAt || new Date().toISOString(),
+            updatedAt: a.updated_at || a.updatedAt || new Date().toISOString(),
           }));
           source = 'supabase_table';
         }
       } catch {}
     }
 
-    if (studentsData.length === 0) {
-      const metadataStudents = user?.user_metadata?.students;
-      if (Array.isArray(metadataStudents) && metadataStudents.length > 0) {
-        studentsData = metadataStudents;
+    if (achievementsData.length === 0) {
+      const metadataAchievements = user?.user_metadata?.achievements;
+      if (Array.isArray(metadataAchievements) && metadataAchievements.length > 0) {
+        achievementsData = metadataAchievements;
         source = 'supabase_auth_metadata';
       } else if (token) {
         const freshUserRes = await getSupabaseUserFromToken(token);
-        if (freshUserRes.success && Array.isArray(freshUserRes.user?.user_metadata?.students)) {
-          studentsData = freshUserRes.user.user_metadata.students;
+        if (freshUserRes.success && Array.isArray(freshUserRes.user?.user_metadata?.achievements)) {
+          achievementsData = freshUserRes.user.user_metadata.achievements;
           source = 'supabase_auth_metadata';
         }
       }
     }
 
-    logLayerDiag('SUPABASE RESPONSE STATUS', { status: 200, count: studentsData.length, source });
+    logLayerDiag('SUPABASE RESPONSE STATUS', { status: 200, count: achievementsData.length, source });
 
     const respPayload = {
       success: true,
       host: getSupabaseHostName(),
       userId,
-      count: studentsData.length,
+      count: achievementsData.length,
       source,
-      data: studentsData,
+      data: achievementsData,
     };
 
     const respBytes = Buffer.byteLength(JSON.stringify(respPayload), 'utf8');
-    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/students', bytes: respBytes });
-    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/students', status: 200 });
+    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/achievements', bytes: respBytes });
+    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/achievements', status: 200 });
 
     return res.status(200).json(respPayload);
   }
 
   if (req.method === 'POST' || req.method === 'PUT') {
-    logLayerDiag('SUPABASE REQUEST START', { op: 'UPSERT', table: 'student_profiles', userId });
+    logLayerDiag('SUPABASE REQUEST START', { op: 'UPSERT', table: 'achievements', userId });
 
-    const bodyItems = Array.isArray(req.body?.students)
-      ? req.body.students
+    const bodyItems = Array.isArray(req.body?.achievements)
+      ? req.body.achievements
       : Array.isArray(req.body)
       ? req.body
-      : req.body?.student
-      ? [req.body.student]
+      : req.body?.achievement
+      ? [req.body.achievement]
       : req.body
       ? [req.body]
       : [];
 
     const now = new Date().toISOString();
-    const rowsToUpsert = bodyItems.map((s: any) => ({
-      id: s.id || `sp_${userId}_${Date.now()}`,
+    const rowsToUpsert = bodyItems.map((a: any) => ({
+      id: a.id || `ach_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       user_id: userId,
-      name: s.name || '',
-      university: s.university || '',
-      degree: s.degree || 'B.Tech',
-      branch: s.branch || '',
-      year: s.year || '1st Year',
-      career_goal: s.careerGoal || s.career_goal || '',
-      target_role: s.targetRole || s.target_role || '',
-      profile_data: s.profileData || s.profile_data || null,
-      is_active: Boolean(s.isActive ?? s.is_active),
+      student_profile_id: a.studentProfileId || a.student_profile_id || null,
+      title: a.title || '',
+      issuer: a.issuer || a.organization || '',
+      date: a.date || a.issueDate || now.split('T')[0],
+      category: a.category || 'Certification',
+      credential_url: a.credentialUrl || a.credential_url || '',
+      skills: Array.isArray(a.skills) ? a.skills : [],
       updated_at: now,
     }));
 
@@ -137,12 +133,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isServerSupabaseConfigured) {
       if (rowsToUpsert.length > 0) {
         try {
-          const { data: saved, error } = await client
-            .from('student_profiles')
-            .upsert(rowsToUpsert, { onConflict: 'id' })
-            .select();
-
-          if (!error && saved) {
+          const chunkSize = 20;
+          let anyChunkSaved = false;
+          for (let i = 0; i < rowsToUpsert.length; i += chunkSize) {
+            const chunk = rowsToUpsert.slice(i, i + chunkSize);
+            const { error: chunkErr } = await client.from('achievements').upsert(chunk, { onConflict: 'id' });
+            if (!chunkErr) {
+              anyChunkSaved = true;
+            }
+          }
+          if (anyChunkSaved) {
             source = 'supabase_table';
             cloudWritten = true;
             readBackVerified = true;
@@ -153,13 +153,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (token) {
         try {
           const updateRes = await updateSupabaseUserMetadata(token, {
-            students: rowsToUpsert,
-            student_twins: rowsToUpsert,
+            achievements: rowsToUpsert,
           });
 
           if (updateRes.success) {
             const readBackRes = await getSupabaseUserFromToken(token);
-            if (readBackRes.success && (readBackRes.user?.user_metadata?.students || rowsToUpsert.length === 0)) {
+            if (readBackRes.success && (readBackRes.user?.user_metadata?.achievements || rowsToUpsert.length === 0)) {
               source = source === 'supabase_table' ? 'supabase_table_and_auth' : 'supabase_auth_metadata';
               cloudWritten = true;
               readBackVerified = true;
@@ -174,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    setBridgeCache(userId, 'students', rowsToUpsert);
+    setBridgeCache(userId, 'achievements', rowsToUpsert);
 
     const isSuccess = !isServerSupabaseConfigured || (rowsToUpsert.length === 0 ? true : (cloudWritten && readBackVerified));
 
@@ -194,8 +193,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const respBytes = Buffer.byteLength(JSON.stringify(respPayload), 'utf8');
-    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/students', bytes: respBytes });
-    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/students', status: isSuccess ? 200 : 500 });
+    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/achievements', bytes: respBytes });
+    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/achievements', status: isSuccess ? 200 : 500 });
 
     return res.status(isSuccess ? 200 : 500).json(respPayload);
   }
@@ -203,11 +202,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'DELETE') {
     const id = (req.query?.id as string) || req.body?.id;
     if (id) {
-      const cached: any[] = getBridgeCache(userId, 'students') || [];
-      setBridgeCache(userId, 'students', cached.filter((c: any) => c.id !== id));
+      const cached: any[] = getBridgeCache(userId, 'achievements') || [];
+      setBridgeCache(userId, 'achievements', cached.filter((c: any) => c.id !== id));
       if (isServerSupabaseConfigured) {
         try {
-          await client.from('student_profiles').delete().eq('id', id).eq('user_id', userId);
+          await client.from('achievements').delete().eq('id', id).eq('user_id', userId);
         } catch {}
       }
     }

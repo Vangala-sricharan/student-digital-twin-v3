@@ -9,7 +9,7 @@ import {
   getSupabaseHostName,
   getBridgeCache,
   setBridgeCache,
-} from '../_utils/supabaseServer.js';
+} from '../../_utils/supabaseServer.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
@@ -18,14 +18,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   logLayerDiag('ROUTE HANDLER ENTERED', {
     method: req.method,
-    path: '/api/twin/skills',
+    path: '/api/twin/projects',
     queryUserId: req.query?.userId || req.query?.user_id,
   });
 
   const { authenticated, userId, user, token, refreshToken, error: authError } = await authenticateRequest(req);
 
   if (!authenticated || !userId) {
-    logLayerDiag('AUTH CHECK FAILED', { path: '/api/twin/skills', error: authError });
+    logLayerDiag('AUTH CHECK FAILED', { path: '/api/twin/projects', error: authError });
     return res.status(401).json({
       success: false,
       error: authError || 'Unauthorized — Authenticated user session required',
@@ -35,90 +35,100 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = await getSupabaseAuthedClient(token || undefined, refreshToken || undefined);
 
   if (req.method === 'GET') {
-    logLayerDiag('SUPABASE REQUEST START', { op: 'SELECT', table: 'skills', userId });
+    logLayerDiag('SUPABASE REQUEST START', { op: 'SELECT', table: 'projects', userId });
 
-    let skillsData: any[] = [];
+    let projectsData: any[] = [];
     let source = 'memory';
 
     if (isServerSupabaseConfigured) {
       try {
         const { data, error } = await client
-          .from('skills')
+          .from('projects')
           .select('*')
           .eq('user_id', userId)
-          .order('created_at', { ascending: true });
+          .order('created_at', { ascending: false });
 
         if (!error && Array.isArray(data) && data.length > 0) {
-          skillsData = data.map((s: any) => ({
-            id: s.id,
-            userId: s.user_id || userId,
-            studentProfileId: s.student_profile_id || s.studentProfileId,
-            skillName: s.skill_name || s.skillName || s.name || '',
-            category: s.category || 'Programming',
-            proficiency: s.proficiency || 'Intermediate',
-            score: typeof s.score === 'number' ? s.score : 75,
-            createdAt: s.created_at || s.createdAt || new Date().toISOString(),
-            updatedAt: s.updated_at || s.updatedAt || new Date().toISOString(),
+          projectsData = data.map((p: any) => ({
+            id: p.id,
+            userId: p.user_id || userId,
+            studentProfileId: p.student_profile_id || p.studentProfileId,
+            title: p.title || '',
+            description: p.description || '',
+            architecture: p.architecture || '',
+            techStack: Array.isArray(p.tech_stack) ? p.tech_stack : (Array.isArray(p.techStack) ? p.techStack : []),
+            githubUrl: p.github_url || p.githubUrl || '',
+            liveDemoUrl: p.live_demo_url || p.liveDemoUrl || '',
+            role: p.role || 'Lead Developer',
+            difficulty: p.difficulty || 'Intermediate',
+            status: p.status || 'Completed',
+            createdAt: p.created_at || p.createdAt || new Date().toISOString(),
+            updatedAt: p.updated_at || p.updatedAt || new Date().toISOString(),
           }));
           source = 'supabase_table';
         }
       } catch {}
     }
 
-    if (skillsData.length === 0) {
-      const metadataSkills = user?.user_metadata?.skills;
-      if (Array.isArray(metadataSkills) && metadataSkills.length > 0) {
-        skillsData = metadataSkills;
+    if (projectsData.length === 0) {
+      const metadataProjects = user?.user_metadata?.projects;
+      if (Array.isArray(metadataProjects) && metadataProjects.length > 0) {
+        projectsData = metadataProjects;
         source = 'supabase_auth_metadata';
       } else if (token) {
         const freshUserRes = await getSupabaseUserFromToken(token);
-        if (freshUserRes.success && Array.isArray(freshUserRes.user?.user_metadata?.skills)) {
-          skillsData = freshUserRes.user.user_metadata.skills;
+        if (freshUserRes.success && Array.isArray(freshUserRes.user?.user_metadata?.projects)) {
+          projectsData = freshUserRes.user.user_metadata.projects;
           source = 'supabase_auth_metadata';
         }
       }
     }
 
-    logLayerDiag('SUPABASE RESPONSE STATUS', { status: 200, count: skillsData.length, source });
+    logLayerDiag('SUPABASE RESPONSE STATUS', { status: 200, count: projectsData.length, source });
 
     const respPayload = {
       success: true,
       host: getSupabaseHostName(),
       userId,
-      count: skillsData.length,
+      count: projectsData.length,
       source,
-      data: skillsData,
+      data: projectsData,
     };
 
     const respBytes = Buffer.byteLength(JSON.stringify(respPayload), 'utf8');
-    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/skills', bytes: respBytes });
-    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/skills', status: 200 });
+    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/projects', bytes: respBytes });
+    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/projects', status: 200 });
 
     return res.status(200).json(respPayload);
   }
 
   if (req.method === 'POST' || req.method === 'PUT') {
-    logLayerDiag('SUPABASE REQUEST START', { op: 'UPSERT', table: 'skills', userId });
+    logLayerDiag('SUPABASE REQUEST START', { op: 'UPSERT', table: 'projects', userId });
 
-    const bodyItems = Array.isArray(req.body?.skills)
-      ? req.body.skills
+    const bodyItems = Array.isArray(req.body?.projects)
+      ? req.body.projects
       : Array.isArray(req.body)
       ? req.body
-      : req.body?.skill
-      ? [req.body.skill]
+      : req.body?.project
+      ? [req.body.project]
       : req.body
       ? [req.body]
       : [];
 
     const now = new Date().toISOString();
-    const rowsToUpsert = bodyItems.map((s: any) => ({
-      id: s.id || `skill_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    const rowsToUpsert = bodyItems.map((p: any) => ({
+      id: p.id || `proj_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       user_id: userId,
-      student_profile_id: s.studentProfileId || s.student_profile_id || null,
-      skill_name: s.skillName || s.skill_name || s.name || '',
-      category: s.category || 'Programming',
-      proficiency: s.proficiency || 'Intermediate',
-      score: typeof s.score === 'number' ? s.score : 75,
+      student_profile_id: p.studentProfileId || p.student_profile_id || null,
+      title: p.title || '',
+      description: p.description || '',
+      architecture: p.architecture || '',
+      tech_stack: Array.isArray(p.techStack) ? p.techStack : (Array.isArray(p.tech_stack) ? p.tech_stack : []),
+      github_url: p.githubUrl || p.github_url || '',
+      live_demo_url: p.liveDemoUrl || p.live_demo_url || '',
+      role: p.role || 'Lead Developer',
+      difficulty: p.difficulty || 'Intermediate',
+      status: p.status || 'Completed',
       updated_at: now,
     }));
 
@@ -129,11 +139,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isServerSupabaseConfigured) {
       if (rowsToUpsert.length > 0) {
         try {
-          const chunkSize = 25;
+          const chunkSize = 15;
           let anyChunkSaved = false;
           for (let i = 0; i < rowsToUpsert.length; i += chunkSize) {
             const chunk = rowsToUpsert.slice(i, i + chunkSize);
-            const { error: chunkErr } = await client.from('skills').upsert(chunk, { onConflict: 'id' });
+            const { error: chunkErr } = await client.from('projects').upsert(chunk, { onConflict: 'id' });
             if (!chunkErr) {
               anyChunkSaved = true;
             }
@@ -149,12 +159,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (token) {
         try {
           const updateRes = await updateSupabaseUserMetadata(token, {
-            skills: rowsToUpsert,
+            projects: rowsToUpsert,
           });
 
           if (updateRes.success) {
             const readBackRes = await getSupabaseUserFromToken(token);
-            if (readBackRes.success && (readBackRes.user?.user_metadata?.skills || rowsToUpsert.length === 0)) {
+            if (readBackRes.success && (readBackRes.user?.user_metadata?.projects || rowsToUpsert.length === 0)) {
               source = source === 'supabase_table' ? 'supabase_table_and_auth' : 'supabase_auth_metadata';
               cloudWritten = true;
               readBackVerified = true;
@@ -169,7 +179,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    setBridgeCache(userId, 'skills', rowsToUpsert);
+    setBridgeCache(userId, 'projects', rowsToUpsert);
 
     const isSuccess = !isServerSupabaseConfigured || (rowsToUpsert.length === 0 ? true : (cloudWritten && readBackVerified));
 
@@ -189,8 +199,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const respBytes = Buffer.byteLength(JSON.stringify(respPayload), 'utf8');
-    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/skills', bytes: respBytes });
-    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/skills', status: isSuccess ? 200 : 500 });
+    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/projects', bytes: respBytes });
+    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/projects', status: isSuccess ? 200 : 500 });
 
     return res.status(isSuccess ? 200 : 500).json(respPayload);
   }
@@ -198,11 +208,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'DELETE') {
     const id = (req.query?.id as string) || req.body?.id;
     if (id) {
-      const cached: any[] = getBridgeCache(userId, 'skills') || [];
-      setBridgeCache(userId, 'skills', cached.filter((c: any) => c.id !== id));
+      const cached: any[] = getBridgeCache(userId, 'projects') || [];
+      setBridgeCache(userId, 'projects', cached.filter((c: any) => c.id !== id));
       if (isServerSupabaseConfigured) {
         try {
-          await client.from('skills').delete().eq('id', id).eq('user_id', userId);
+          await client.from('projects').delete().eq('id', id).eq('user_id', userId);
         } catch {}
       }
     }

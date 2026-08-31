@@ -2,8 +2,24 @@
   "framework": "vite",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
+      "source": "/api/health",
+      "destination": "/api/health"
+    },
+    {
+      "source": "/api/twin/:match*",
+      "destination": "/api/twin?module=:match*"
+    },
+    {
+      "source": "/api/twin",
+      "destination": "/api/twin"
+    },
+    {
+      "source": "/api/ai/:match*",
+      "destination": "/api/ai?action=:match*"
+    },
+    {
+      "source": "/api/ai",
+      "destination": "/api/ai"
     },
     {
       "source": "/(.*)",

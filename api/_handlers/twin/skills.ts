@@ -9,7 +9,7 @@ import {
   getSupabaseHostName,
   getBridgeCache,
   setBridgeCache,
-} from '../_utils/supabaseServer.js';
+} from '../../_utils/supabaseServer.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') {
@@ -18,14 +18,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   logLayerDiag('ROUTE HANDLER ENTERED', {
     method: req.method,
-    path: '/api/twin/career-goals',
+    path: '/api/twin/skills',
     queryUserId: req.query?.userId || req.query?.user_id,
   });
 
   const { authenticated, userId, user, token, refreshToken, error: authError } = await authenticateRequest(req);
 
   if (!authenticated || !userId) {
-    logLayerDiag('AUTH CHECK FAILED', { path: '/api/twin/career-goals', error: authError });
+    logLayerDiag('AUTH CHECK FAILED', { path: '/api/twin/skills', error: authError });
     return res.status(401).json({
       success: false,
       error: authError || 'Unauthorized — Authenticated user session required',
@@ -35,95 +35,90 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const client = await getSupabaseAuthedClient(token || undefined, refreshToken || undefined);
 
   if (req.method === 'GET') {
-    logLayerDiag('SUPABASE REQUEST START', { op: 'SELECT', table: 'career_goals', userId });
+    logLayerDiag('SUPABASE REQUEST START', { op: 'SELECT', table: 'skills', userId });
 
-    let careerGoalsData: any[] = [];
+    let skillsData: any[] = [];
     let source = 'memory';
 
     if (isServerSupabaseConfigured) {
       try {
         const { data, error } = await client
-          .from('career_goals')
+          .from('skills')
           .select('*')
           .eq('user_id', userId)
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: true });
 
         if (!error && Array.isArray(data) && data.length > 0) {
-          careerGoalsData = data.map((g: any) => ({
-            id: g.id,
-            userId: g.user_id || userId,
-            studentProfileId: g.student_profile_id || g.studentProfileId,
-            targetRole: g.target_role || g.targetRole || '',
-            targetIndustry: g.target_industry || g.targetIndustry || '',
-            timeline: g.timeline || '6 Months',
-            status: g.status || 'Active',
-            milestones: Array.isArray(g.milestones) ? g.milestones : [],
-            createdAt: g.created_at || g.createdAt || new Date().toISOString(),
-            updatedAt: g.updated_at || g.updatedAt || new Date().toISOString(),
+          skillsData = data.map((s: any) => ({
+            id: s.id,
+            userId: s.user_id || userId,
+            studentProfileId: s.student_profile_id || s.studentProfileId,
+            skillName: s.skill_name || s.skillName || s.name || '',
+            category: s.category || 'Programming',
+            proficiency: s.proficiency || 'Intermediate',
+            score: typeof s.score === 'number' ? s.score : 75,
+            createdAt: s.created_at || s.createdAt || new Date().toISOString(),
+            updatedAt: s.updated_at || s.updatedAt || new Date().toISOString(),
           }));
           source = 'supabase_table';
         }
       } catch {}
     }
 
-    if (careerGoalsData.length === 0) {
-      const metadataGoals = user?.user_metadata?.career_goals || user?.user_metadata?.careerGoals;
-      if (Array.isArray(metadataGoals) && metadataGoals.length > 0) {
-        careerGoalsData = metadataGoals;
+    if (skillsData.length === 0) {
+      const metadataSkills = user?.user_metadata?.skills;
+      if (Array.isArray(metadataSkills) && metadataSkills.length > 0) {
+        skillsData = metadataSkills;
         source = 'supabase_auth_metadata';
       } else if (token) {
         const freshUserRes = await getSupabaseUserFromToken(token);
-        const freshGoals = freshUserRes.user?.user_metadata?.career_goals || freshUserRes.user?.user_metadata?.careerGoals;
-        if (freshUserRes.success && Array.isArray(freshGoals)) {
-          careerGoalsData = freshGoals;
+        if (freshUserRes.success && Array.isArray(freshUserRes.user?.user_metadata?.skills)) {
+          skillsData = freshUserRes.user.user_metadata.skills;
           source = 'supabase_auth_metadata';
         }
       }
     }
 
-    logLayerDiag('SUPABASE RESPONSE STATUS', { status: 200, count: careerGoalsData.length, source });
+    logLayerDiag('SUPABASE RESPONSE STATUS', { status: 200, count: skillsData.length, source });
 
     const respPayload = {
       success: true,
       host: getSupabaseHostName(),
       userId,
-      count: careerGoalsData.length,
+      count: skillsData.length,
       source,
-      data: careerGoalsData,
+      data: skillsData,
     };
 
     const respBytes = Buffer.byteLength(JSON.stringify(respPayload), 'utf8');
-    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/career-goals', bytes: respBytes });
-    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/career-goals', status: 200 });
+    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/skills', bytes: respBytes });
+    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/skills', status: 200 });
 
     return res.status(200).json(respPayload);
   }
 
   if (req.method === 'POST' || req.method === 'PUT') {
-    logLayerDiag('SUPABASE REQUEST START', { op: 'UPSERT', table: 'career_goals', userId });
+    logLayerDiag('SUPABASE REQUEST START', { op: 'UPSERT', table: 'skills', userId });
 
-    const bodyItems = Array.isArray(req.body?.careerGoals)
-      ? req.body.careerGoals
-      : Array.isArray(req.body?.career_goals)
-      ? req.body.career_goals
+    const bodyItems = Array.isArray(req.body?.skills)
+      ? req.body.skills
       : Array.isArray(req.body)
       ? req.body
-      : req.body?.careerGoal
-      ? [req.body.careerGoal]
+      : req.body?.skill
+      ? [req.body.skill]
       : req.body
       ? [req.body]
       : [];
 
     const now = new Date().toISOString();
-    const rowsToUpsert = bodyItems.map((g: any) => ({
-      id: g.id || `goal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    const rowsToUpsert = bodyItems.map((s: any) => ({
+      id: s.id || `skill_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       user_id: userId,
-      student_profile_id: g.studentProfileId || g.student_profile_id || null,
-      target_role: g.targetRole || g.target_role || '',
-      target_industry: g.targetIndustry || g.target_industry || '',
-      timeline: g.timeline || '6 Months',
-      status: g.status || 'Active',
-      milestones: Array.isArray(g.milestones) ? g.milestones : [],
+      student_profile_id: s.studentProfileId || s.student_profile_id || null,
+      skill_name: s.skillName || s.skill_name || s.name || '',
+      category: s.category || 'Programming',
+      proficiency: s.proficiency || 'Intermediate',
+      score: typeof s.score === 'number' ? s.score : 75,
       updated_at: now,
     }));
 
@@ -134,11 +129,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isServerSupabaseConfigured) {
       if (rowsToUpsert.length > 0) {
         try {
-          const chunkSize = 20;
+          const chunkSize = 25;
           let anyChunkSaved = false;
           for (let i = 0; i < rowsToUpsert.length; i += chunkSize) {
             const chunk = rowsToUpsert.slice(i, i + chunkSize);
-            const { error: chunkErr } = await client.from('career_goals').upsert(chunk, { onConflict: 'id' });
+            const { error: chunkErr } = await client.from('skills').upsert(chunk, { onConflict: 'id' });
             if (!chunkErr) {
               anyChunkSaved = true;
             }
@@ -154,13 +149,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (token) {
         try {
           const updateRes = await updateSupabaseUserMetadata(token, {
-            career_goals: rowsToUpsert,
-            careerGoals: rowsToUpsert,
+            skills: rowsToUpsert,
           });
 
           if (updateRes.success) {
             const readBackRes = await getSupabaseUserFromToken(token);
-            if (readBackRes.success && ((readBackRes.user?.user_metadata?.career_goals || readBackRes.user?.user_metadata?.careerGoals) || rowsToUpsert.length === 0)) {
+            if (readBackRes.success && (readBackRes.user?.user_metadata?.skills || rowsToUpsert.length === 0)) {
               source = source === 'supabase_table' ? 'supabase_table_and_auth' : 'supabase_auth_metadata';
               cloudWritten = true;
               readBackVerified = true;
@@ -175,7 +169,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    setBridgeCache(userId, 'careerGoals', rowsToUpsert);
+    setBridgeCache(userId, 'skills', rowsToUpsert);
 
     const isSuccess = !isServerSupabaseConfigured || (rowsToUpsert.length === 0 ? true : (cloudWritten && readBackVerified));
 
@@ -195,8 +189,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     const respBytes = Buffer.byteLength(JSON.stringify(respPayload), 'utf8');
-    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/career-goals', bytes: respBytes });
-    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/career-goals', status: isSuccess ? 200 : 500 });
+    logLayerDiag('RESPONSE SIZE', { path: '/api/twin/skills', bytes: respBytes });
+    logLayerDiag('FINAL API RESPONSE STATUS', { path: '/api/twin/skills', status: isSuccess ? 200 : 500 });
 
     return res.status(isSuccess ? 200 : 500).json(respPayload);
   }
@@ -204,11 +198,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'DELETE') {
     const id = (req.query?.id as string) || req.body?.id;
     if (id) {
-      const cached: any[] = getBridgeCache(userId, 'careerGoals') || [];
-      setBridgeCache(userId, 'careerGoals', cached.filter((c: any) => c.id !== id));
+      const cached: any[] = getBridgeCache(userId, 'skills') || [];
+      setBridgeCache(userId, 'skills', cached.filter((c: any) => c.id !== id));
       if (isServerSupabaseConfigured) {
         try {
-          await client.from('career_goals').delete().eq('id', id).eq('user_id', userId);
+          await client.from('skills').delete().eq('id', id).eq('user_id', userId);
         } catch {}
       }
     }

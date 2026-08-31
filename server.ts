@@ -5,26 +5,8 @@ import dotenv from 'dotenv';
 
 // Import Vercel Serverless Function Handlers
 import healthHandler from './api/health.ts';
-import assistantHandler from './api/ai/assistant.ts';
-import resumeSectionHandler from './api/ai/resume/generate-section.ts';
-import resumeAnalyzeHandler from './api/ai/resume/analyze.ts';
-import syllabusAnalyzeHandler from './api/ai/syllabus/analyze.ts';
-import projectAnalyzeHandler from './api/ai/project/analyze.ts';
-import githubAnalyzeHandler from './api/ai/github/analyze.ts';
-import linkedinAnalyzeHandler from './api/ai/linkedin/analyze.ts';
-import internshipAnalyzeHandler from './api/ai/internship/analyze.ts';
-import roadmapGenerateHandler from './api/ai/roadmap/generate.ts';
-import simulatorRunHandler from './api/ai/simulator/run.ts';
-import portfolioGenerateHandler from './api/ai/portfolio/generate.ts';
-import twinLoadHandler from './api/twin/load.ts';
-import twinSyncHandler from './api/twin/sync.ts';
-import twinItemHandler from './api/twin/item.ts';
-import twinProfileHandler from './api/twin/profile.ts';
-import twinStudentsHandler from './api/twin/students.ts';
-import twinSkillsHandler from './api/twin/skills.ts';
-import twinProjectsHandler from './api/twin/projects.ts';
-import twinAchievementsHandler from './api/twin/achievements.ts';
-import twinCareerGoalsHandler from './api/twin/career-goals.ts';
+import aiHandler from './api/ai.ts';
+import twinHandler from './api/twin.ts';
 
 dotenv.config();
 
@@ -60,27 +42,8 @@ app.use((req, res, next) => {
 // SERVERLESS FUNCTION ROUTES DELEGATION (Matches Vercel /api/* routing)
 // ==============================================================================
 app.all('/api/health', (req, res) => healthHandler(req as any, res as any));
-app.all('/api/twin/profile', (req, res) => twinProfileHandler(req as any, res as any));
-app.all('/api/twin/students', (req, res) => twinStudentsHandler(req as any, res as any));
-app.all('/api/twin/student-twins', (req, res) => twinStudentsHandler(req as any, res as any));
-app.all('/api/twin/skills', (req, res) => twinSkillsHandler(req as any, res as any));
-app.all('/api/twin/projects', (req, res) => twinProjectsHandler(req as any, res as any));
-app.all('/api/twin/achievements', (req, res) => twinAchievementsHandler(req as any, res as any));
-app.all('/api/twin/career-goals', (req, res) => twinCareerGoalsHandler(req as any, res as any));
-app.all('/api/twin/load', (req, res) => twinLoadHandler(req as any, res as any));
-app.all('/api/twin/sync', (req, res) => twinSyncHandler(req as any, res as any));
-app.all('/api/twin/item', (req, res) => twinItemHandler(req as any, res as any));
-app.all('/api/ai/assistant', (req, res) => assistantHandler(req as any, res as any));
-app.all('/api/ai/resume/generate-section', (req, res) => resumeSectionHandler(req as any, res as any));
-app.all('/api/ai/resume/analyze', (req, res) => resumeAnalyzeHandler(req as any, res as any));
-app.all('/api/ai/syllabus/analyze', (req, res) => syllabusAnalyzeHandler(req as any, res as any));
-app.all('/api/ai/project/analyze', (req, res) => projectAnalyzeHandler(req as any, res as any));
-app.all('/api/ai/github/analyze', (req, res) => githubAnalyzeHandler(req as any, res as any));
-app.all('/api/ai/linkedin/analyze', (req, res) => linkedinAnalyzeHandler(req as any, res as any));
-app.all('/api/ai/internship/analyze', (req, res) => internshipAnalyzeHandler(req as any, res as any));
-app.all('/api/ai/roadmap/generate', (req, res) => roadmapGenerateHandler(req as any, res as any));
-app.all('/api/ai/simulator/run', (req, res) => simulatorRunHandler(req as any, res as any));
-app.all('/api/ai/portfolio/generate', (req, res) => portfolioGenerateHandler(req as any, res as any));
+app.all('/api/twin*', (req, res) => twinHandler(req as any, res as any));
+app.all('/api/ai*', (req, res) => aiHandler(req as any, res as any));
 
 // ==============================================================================
 // VITE MIDDLEWARE & STATIC SERVING
